@@ -1,0 +1,12 @@
+{
+  "userTypeId": "INDEPENDENT_AGENT",
+  "firstName": "Juan",
+  "lastName": "Pérez",
+  "email": "juan.agent@example.com",
+  "document": {
+    "documentTypeId": "CC",
+    "documentNumber": "1245678901"
+  },
+  "birthDate": "1988-03-10",
+  "password": "AgentSecure789!"
+}

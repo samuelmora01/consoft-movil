@@ -1,0 +1,81 @@
+name: Deploy Infrastructure
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+permissions:
+  id-token: write
+  contents: read
+
+# ENVIRONMENT VARIABLES
+env:
+  DEV_ROLE_ARN: ${{ secrets.DEV_ROLE_ARN }}
+  PROD_ROLE_ARN: ${{ secrets.PROD_ROLE_ARN }}
+
+jobs:
+  filter:
+    runs-on: ubuntu-latest
+    outputs:
+      sam: ${{ steps.filter.outputs.sam }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Filter changed files
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            sam:
+              - 'deployment/aws/template.yaml'
+
+  deploy-sam:
+    needs: filter
+    if: needs.filter.outputs.sam == 'true'
+    runs-on: ubuntu-latest
+    environment: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set AWS Role ARN
+        id: setrole
+        run: |
+          if [ "${GITHUB_REF_NAME}" = "main" ]; then
+            echo "ROLE_ARN=${{ env.PROD_ROLE_ARN }}" >> $GITHUB_ENV
+          else
+            echo "ROLE_ARN=${{ env.DEV_ROLE_ARN }}" >> $GITHUB_ENV
+          fi
+      - name: Log info - Branch and Role
+        run: |
+          echo "Branch: ${GITHUB_REF_NAME}"
+          echo "Assumed Role: $ROLE_ARN"
+      - name: Configure AWS credentials from OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.ROLE_ARN }}
+          role-session-name: DeployGithub
+          aws-region: us-east-1  # Cambia la región si es necesario
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install dependencies
+        run: npm ci
+      # - name: Run tests
+      #   run: npm test
+      - name: Build project
+        run: npm run build
+      - name: Install AWS SAM CLI
+        uses: aws-actions/setup-sam@v2
+      - name: Deploy with AWS SAM
+        run: |
+          sam deploy \
+            --template-file deployment/aws/template.yaml \
+            --stack-name "${GITHUB_REF_NAME}-${GITHUB_REPOSITORY##*/}" \
+            --s3-bucket mlholding-sam-deployments \
+            --s3-prefix "${GITHUB_REPOSITORY}/${GITHUB_REF_NAME}" \
+            --capabilities CAPABILITY_IAM \
+            --no-confirm-changeset \
+            --no-fail-on-empty-changeset
+            --no-fail-on-empty-changeset \
+            --region us-east-1

@@ -1,0 +1,127 @@
+openapi: '3.0.0'
+info:
+  title: 'Biznagi Serverless API'
+  version: '1.0.0'
+  description: 'API automatically generated from code structure'
+servers:
+  - url: 'https://api.example.com'
+paths:
+  /signup:
+    post:
+      summary: 'POST /signup'
+      operationId: 'postsignup'
+      responses:
+        200:
+          description: 'Successful response'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        400:
+          description: 'Bad request'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        500:
+          description: 'Internal server error'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      x-amazon-apigateway-integration:
+        uri:
+          Fn::Sub: 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${LambdaFunction.Arn}/invocations'
+        responses:
+          default:
+            statusCode: '200'
+        passthroughBehavior: 'when_no_match'
+        httpMethod: 'POST'
+        contentHandling: 'CONVERT_TO_TEXT'
+        type: 'aws_proxy'
+  /confirm:
+    post:
+      summary: 'POST /confirm'
+      operationId: 'postconfirm'
+      responses:
+        200:
+          description: 'Successful response'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        400:
+          description: 'Bad request'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        500:
+          description: 'Internal server error'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      x-amazon-apigateway-integration:
+        uri:
+          Fn::Sub: 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${LambdaFunction.Arn}/invocations'
+        responses:
+          default:
+            statusCode: '200'
+        passthroughBehavior: 'when_no_match'
+        httpMethod: 'POST'
+        contentHandling: 'CONVERT_TO_TEXT'
+        type: 'aws_proxy'
+  /signin:
+    post:
+      summary: 'POST /signin'
+      operationId: 'postsignin'
+      responses:
+        200:
+          description: 'Successful response'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        400:
+          description: 'Bad request'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        500:
+          description: 'Internal server error'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      x-amazon-apigateway-integration:
+        uri:
+          Fn::Sub: 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${LambdaFunction.Arn}/invocations'
+        responses:
+          default:
+            statusCode: '200'
+        passthroughBehavior: 'when_no_match'
+        httpMethod: 'POST'
+        contentHandling: 'CONVERT_TO_TEXT'
+        type: 'aws_proxy'
+components:
+  schemas:
+    SuccessResponse:
+      type: 'object'
+      properties:
+        success:
+          type: 'boolean'
+        data:
+          type: 'object'
+        message:
+          type: 'string'
+    ErrorResponse:
+      type: 'object'
+      properties:
+        success:
+          type: 'boolean'
+        error:
+          type: 'string'
+        message:
+          type: 'string'

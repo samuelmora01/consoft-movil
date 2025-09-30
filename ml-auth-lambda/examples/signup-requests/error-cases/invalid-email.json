@@ -1,0 +1,12 @@
+{
+  "userTypeId": "ut-owner-001",
+  "firstName": "Test",
+  "lastName": "User",
+  "email": "invalid-email-format",
+  "document": {
+    "documentTypeId": "CC",
+    "documentNumber": "1023456789"
+  },
+  "birthDate": "1990-06-23",
+  "password": "TestPassword123!"
+}

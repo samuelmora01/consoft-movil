@@ -1,0 +1,11 @@
+{
+  "userTypeId": "REAL_ESTATE",
+  "orgName": "Inmobiliaria Premium S.A.S",
+  "email": "contacto@inmobiliariapremium.com",
+  "document": {
+    "documentTypeId": "NIT",
+    "documentNumber": "900123456",
+    "dv": 4
+  },
+  "password": "RealEstatePass123!"
+}

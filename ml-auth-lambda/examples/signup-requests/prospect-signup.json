@@ -1,0 +1,12 @@
+{
+  "userTypeId": "PROSPECT",
+  "firstName": "Ana",
+  "lastName": "García",
+  "email": "ana.prospect@example.com",
+  "document": {
+    "documentTypeId": "CC",
+    "documentNumber": "1134567890"
+  },
+  "birthDate": "1985-12-15",
+  "password": "ProspectPass456!"
+}

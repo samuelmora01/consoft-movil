@@ -1,0 +1,169 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: SAM Lambda Template (TypeScript)
+
+Parameters:
+  StageName:
+    Type: String
+    Description: Nombre del stage
+    Default: v1
+  NameService:
+    Type: String
+    Default: "ml-auth-lambda"
+    Description: "Lambda function name"
+  
+  # Cognito Configuration Parameters
+  CognitoRegion:
+    Type: String
+    Description: AWS Region where Cognito User Pool is located
+    Default: us-east-1
+  
+  CognitoPortalUserPoolId:
+    Type: String
+    Description: Cognito User Pool ID for Portal users
+    NoEcho: true
+  
+  CognitoPortalClientId:
+    Type: String
+    Description: Cognito App Client ID for Portal (public client)
+    NoEcho: true
+
+Globals:
+  Function:
+    Timeout: 10
+    Runtime: nodejs22.x
+
+Resources:
+  PublicApiGateway:
+    Type: AWS::Serverless::Api
+    Properties:
+      Name: !Sub "${NameService}-public"
+      StageName: !Ref StageName
+      Cors:
+        AllowMethods: "'GET,POST,PUT,PATCH,DELETE,OPTIONS'"
+        AllowHeaders: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,appVersion,app-version,platform,geo,x-forwarded-for,x-real-ip'"
+        AllowOrigin: "'*'"
+        MaxAge: "'600'"
+        AllowCredentials: false
+      DefinitionBody:
+        Fn::Transform:
+          Name: AWS::Include
+          Parameters:
+            Location: openapi/openapi.yaml
+
+  ##UNCOMMENT IF YOU WANT TO ENABLE PRIVATE API
+  # PrivateApiGateway:
+  #   Type: AWS::Serverless::Api
+  #   Properties:
+  #     StageName: !Ref StageName
+  #     DefinitionUri: openapi/openapi.yaml
+
+  LambdaFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Ref NameService
+      CodeUri: ../../
+      Handler: dist/interfaces/aws-lambda/handler.handler
+      Description: "lambda for authentication - using github secrets"
+      Environment:
+        Variables:
+          # Repository Configuration
+          USER_REPOSITORY: DYNAMO
+          USERTYPES_REPOSITORY: DYNAMO
+          PERSONPROFILE_REPOSITORY: DYNAMO
+          ORGPROFILE_REPOSITORY: DYNAMO
+          DOCUMENTS_REPOSITORY: DYNAMO
+          SESSIONS_REPOSITORY: DYNAMO
+          # CORS Configuration
+          CORS_ALLOWED_ORIGINS: "https://app.mlholdingdev.com,https://mlholdingdev.com,http://localhost:3000"
+          # Cognito Configuration
+          COGNITO_REGION: !Ref CognitoRegion
+          COGNITO_PORTAL_USER_POOL_ID: !Ref CognitoPortalUserPoolId
+          COGNITO_PORTAL_CLIENT_ID: !Ref CognitoPortalClientId
+      Events:
+        PublicApi:
+          Type: Api
+          Properties:
+            Path: /
+            Method: post
+            RestApiId: !Ref PublicApiGateway
+      Policies:
+        - Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Action:
+                - execute-api:Invoke
+              Resource: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:*"
+        - Version: "2012-10-17"
+          Statement:
+            # Allow creating and listing tables (CreateTable requires resource "*")
+            - Effect: Allow
+              Action:
+                - dynamodb:CreateTable
+                - dynamodb:ListTables
+              Resource: "*"
+            # Allow table CRUD and management on tables and GSIs in this account/region
+            - Effect: Allow
+              Action:
+                - dynamodb:DescribeTable
+                - dynamodb:UpdateTable
+                - dynamodb:UpdateTimeToLive
+                - dynamodb:DescribeTimeToLive
+                - dynamodb:TagResource
+                - dynamodb:UntagResource
+                - dynamodb:PutItem
+                - dynamodb:GetItem
+                - dynamodb:UpdateItem
+                - dynamodb:DeleteItem
+                - dynamodb:Query
+                - dynamodb:Scan
+                - dynamodb:BatchWriteItem
+                - dynamodb:BatchGetItem
+              Resource:
+                - !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/*"
+                - !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/*/index/*"
+        
+        # Cognito Identity Provider permissions
+        - Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Action:
+                - cognito-idp:SignUp
+                - cognito-idp:ConfirmSignUp
+                - cognito-idp:ResendConfirmationCode
+                - cognito-idp:InitiateAuth
+                - cognito-idp:AdminInitiateAuth
+                - cognito-idp:RespondToAuthChallenge
+                - cognito-idp:ForgotPassword
+                - cognito-idp:ConfirmForgotPassword
+                - cognito-idp:ChangePassword
+                - cognito-idp:GetUser
+                - cognito-idp:AdminGetUser
+                - cognito-idp:AdminConfirmSignUp
+                - cognito-idp:AdminSetUserPassword
+                - cognito-idp:AdminUpdateUserAttributes
+              Resource:
+                - !Sub "arn:aws:cognito-idp:${CognitoRegion}:${AWS::AccountId}:userpool/${CognitoPortalUserPoolId}"
+
+        ##UNCOMMENT IF YOU WANT TO ENABLE PRIVATE API
+        # PrivateApi:
+        #   Type: Api
+        #   Properties:
+        #     RestApiId: !Ref PrivateApiGateway
+        
+  PathMapping:
+    Type: AWS::ApiGateway::BasePathMapping
+    DependsOn: PublicApiGateway
+    Properties:
+      BasePath: "oauth"
+      DomainName: '{{resolve:secretsmanager:sam-deploy:SecretString:DomainName}}'
+      RestApiId: !Ref PublicApiGateway
+      Stage: !Ref PublicApiGateway.Stage
+
+  ApiPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: "lambda:InvokeFunction"
+      FunctionName: !Ref LambdaFunction
+      Principal: "apigateway.amazonaws.com"
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${PublicApiGateway}/*/*"
