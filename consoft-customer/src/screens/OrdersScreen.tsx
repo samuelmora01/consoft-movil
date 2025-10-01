@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, Image } from 'react-native';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, Image, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 type OrderCard = {
   id: string;
@@ -21,24 +22,27 @@ const SAMPLE_ORDERS: OrderCard[] = [
 
 export default function OrdersScreen({ navigation }: any) {
   const orders = useMemo(() => SAMPLE_ORDERS, []);
+  const insets = useSafeAreaInsets();
+  const androidTopPad = Platform.OS === 'android' ? Math.max(insets.top, 12) : 0;
 
   const renderItem = ({ item }: { item: OrderCard }) => {
-    const statusColor = item.status === 'Completado' ? '#16a34a' : item.status === 'Pendiente' ? '#f59e0b' : '#dc2626';
     return (
       <TouchableOpacity style={styles.card} onPress={() => navigation.navigate('OrderDetail', { order: item })}>
-        <Image source={{ uri: item.image }} style={styles.thumb} />
-        <View style={{ flex: 1, marginLeft: 12 }}>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-            <Text style={styles.cardTitle}>Pedido #{item.number}</Text>
-            <Text style={styles.priceText}>{item.price}</Text>
-          </View>
-          <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 2 }}>
-            <View style={[styles.statusPill, { backgroundColor: statusColor + '20' }]}> 
-              <Text style={[styles.statusText, { color: statusColor }]}>{item.status}</Text>
+        <View style={styles.cardTopRow}>
+          <Image source={{ uri: item.image }} style={styles.thumb} />
+          <View style={{ flex: 1, marginLeft: 12 }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Text style={styles.cardTitle}>Pedido #{item.number}</Text>
+              <View style={styles.badgeRight}>
+                <Ionicons name="cube-outline" size={16} color="#6b4028" />
+              </View>
             </View>
+            <Text numberOfLines={1} style={styles.subtitleSmall}>{item.name}  →</Text>
+            <Text style={styles.priceLarge}>{item.price}</Text>
           </View>
-          <Text style={styles.subtitleSmall}>{item.name}</Text>
-          <Text style={styles.metaText}>{item.products} productos    {item.date}</Text>
+        </View>
+        <View style={styles.dateBar}>
+          <Text numberOfLines={1} style={styles.dateBarText}>Fecha de entrega : {item.date}</Text>
         </View>
       </TouchableOpacity>
     );
@@ -46,7 +50,7 @@ export default function OrdersScreen({ navigation }: any) {
 
   if (orders.length === 0) {
     return (
-      <View style={[styles.container, { alignItems: 'center', justifyContent: 'center' }] }>
+      <View style={[styles.container, { paddingTop: androidTopPad, alignItems: 'center', justifyContent: 'center' }] }>
         <Ionicons name="bed-outline" size={112} color="#6b7280" />
         <Text style={styles.emptyTitle}>¡Uups!</Text>
         <Text style={styles.emptySubtitle}>Aún no tienes pedidos</Text>
@@ -64,7 +68,7 @@ export default function OrdersScreen({ navigation }: any) {
       keyExtractor={(o) => o.id}
       renderItem={renderItem}
       ItemSeparatorComponent={() => <View style={{ height: 14 }} />}
-      contentContainerStyle={{ padding: 16, paddingBottom: 32 }}
+      contentContainerStyle={{ padding: 16, paddingBottom: 32, paddingTop: 16 + androidTopPad }}
     />
   );
 }
@@ -75,12 +79,13 @@ const styles = StyleSheet.create({
   emptySubtitle: { color: '#6b7280', marginTop: 8, marginBottom: 16 },
   ctaBtn: { backgroundColor: '#6b4028', paddingVertical: 12, paddingHorizontal: 20, borderRadius: 999, marginTop: 6 },
   ctaText: { color: '#fff', fontWeight: '700' },
-  card: { flexDirection: 'row', backgroundColor: '#fff', borderRadius: 20, padding: 12, borderWidth: 1, borderColor: '#f3e5dc' },
-  thumb: { width: 70, height: 70, borderRadius: 12 },
+  card: { backgroundColor: '#fff', borderRadius: 16, paddingHorizontal: 12, paddingTop: 12, paddingBottom: 0, borderWidth: 1, borderColor: '#f3e5dc', shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 2 },
+  cardTopRow: { flexDirection: 'row', alignItems: 'center' },
+  thumb: { width: 62, height: 62, borderRadius: 12 },
   cardTitle: { fontWeight: '800', color: '#111827' },
-  priceText: { fontWeight: '800', color: '#111827' },
-  statusPill: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 999, alignSelf: 'flex-start', marginTop: 2 },
-  statusText: { fontSize: 12, fontWeight: '800' },
-  subtitleSmall: { color: '#374151', marginTop: 6 },
-  metaText: { color: '#6b7280', fontSize: 12, marginTop: 2 },
+  badgeRight: { backgroundColor: '#f3e5dc', paddingHorizontal: 8, paddingVertical: 6, borderRadius: 999 },
+  subtitleSmall: { color: '#6b7280', marginTop: 6 },
+  priceLarge: { color: '#6b4028', fontWeight: '800', fontSize: 18, marginTop: 6 },
+  dateBar: { backgroundColor: '#ededed', paddingHorizontal: 12, paddingVertical: 12, marginTop: 10, marginHorizontal: -13, borderBottomLeftRadius: 16, borderBottomRightRadius: 16 },
+  dateBarText: { color: '#111827', fontWeight: '600', fontSize: 12 },
 });

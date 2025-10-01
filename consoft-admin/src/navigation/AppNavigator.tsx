@@ -7,6 +7,7 @@ import RegisterScreen from '../features/auth/screens/RegisterScreen';
 import AppointmentsScreen from '../features/appointments/screens/AppointmentsScreen';
 import HomeScreen from '../features/appointments/screens/HomeScreen';
 import AppointmentDetailScreen from '../features/appointments/screens/AppointmentDetailScreen';
+import AppointmentCreateScreen from '../features/appointments/screens/AppointmentCreateScreen';
 import QuotationScreen from '../features/quotation/screens/QuotationScreen';
 import OrdersListScreen from '../features/quotation/screens/OrdersListScreen';
 import OrderDetailScreen from '../features/quotation/screens/OrderDetailScreen';
@@ -64,6 +65,7 @@ function MainTabs() {
         {() => (
           <AppointmentsStack.Navigator>
             <AppointmentsStack.Screen name="AppointmentsHome" component={HomeScreen} options={{ title: 'Inicio' }} />
+            <AppointmentsStack.Screen name="AppointmentCreate" component={AppointmentCreateScreen} options={{ title: 'Crear visita' }} />
             <AppointmentsStack.Screen name="AppointmentDetail" component={AppointmentDetailScreen} options={{ title: 'Cita' }} />
           </AppointmentsStack.Navigator>
         )}

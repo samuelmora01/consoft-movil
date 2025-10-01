@@ -13,6 +13,7 @@ export default function OrdersListScreen() {
   const navigation = useNavigation<any>();
   const documents = useAppStore((s) => s.documents);
   const [q, setQ] = useState('');
+  
 
   const filtered = useMemo(() => {
     const query = q.trim().toLowerCase();
@@ -49,6 +50,7 @@ export default function OrdersListScreen() {
               },
             ]}
           />
+          
           <FlatList
             data={filtered}
             keyExtractor={(d: SalesDocument) => d.id}
@@ -126,6 +128,7 @@ export default function OrdersListScreen() {
           <Text style={{ color: theme.colors.text, fontWeight: '700' }}>Agregar Pedido</Text>
         </TouchableOpacity>
       )}
+      
     </View>
   );
 }
@@ -138,6 +141,8 @@ const styles = StyleSheet.create({
   statusPill: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999 },
   fab: { position: 'absolute', borderWidth: 1, shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 12, shadowOffset: { width: 0, height: 6 } },
   emptyCta: { position: 'absolute', alignSelf: 'center', borderWidth: 1, shadowColor: '#000', shadowOpacity: 0.18, shadowRadius: 16, shadowOffset: { width: 0, height: 8 }, elevation: 6 },
+  
 });
+
 
 

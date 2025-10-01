@@ -39,6 +39,8 @@ export interface Appointment {
   title: string;
   datetime: string; // ISO
   status: AppointmentStatus;
+  // Optional address for on-site visits
+  address?: string;
   // When a date/time change is proposed and must be approved
   needsApproval?: boolean;
   // ISO timestamps for persistence and sync

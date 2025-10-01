@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Modal, TextInput, KeyboardAvoidingView, Platform, Pressable } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Modal, TextInput, KeyboardAvoidingView, Platform, Pressable, ScrollView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../../theme/theme';
 import { scale, moderateScale, responsiveFontSize } from '../../../theme/responsive';
@@ -8,6 +8,7 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import { useToast } from '../../../ui/ToastProvider';
 
 export default function QuotationScreen() {
+  const scrollRef = React.useRef<ScrollView | null>(null);
   const { theme } = useTheme();
   const navigation = useNavigation<any>();
   const route = useRoute<any>();
@@ -46,6 +47,9 @@ export default function QuotationScreen() {
     setObservation('');
     setModalVisible(false);
     toast.show('Servicio agregado', 'success');
+    setTimeout(() => {
+      scrollRef.current?.scrollToEnd({ animated: true });
+    }, 250);
   };
 
   const itemsToShow = doc?.items ?? draftItems;
@@ -54,7 +58,13 @@ export default function QuotationScreen() {
   // No image picking on creation screen
 
   return (
-    <View style={[styles.container, { backgroundColor: theme.colors.background }]}> 
+    <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <ScrollView
+        ref={scrollRef}
+        keyboardShouldPersistTaps="handled"
+        style={[styles.container, { backgroundColor: theme.colors.background }]}
+        contentContainerStyle={{ padding: 16, paddingBottom: 32 }}
+      > 
       <Text style={[styles.title, { color: theme.colors.text, fontSize: responsiveFontSize(18) }]}>Pedido</Text>
       <Text style={{ color: theme.colors.muted, marginBottom: 8, fontSize: responsiveFontSize(12) }}>*Nombre y Apellidos</Text>
       <TextInput placeholder="Nombre del cliente" value={clientName} onChangeText={setClientName} placeholderTextColor={theme.colors.muted} style={[styles.input, { borderColor: theme.colors.border, color: theme.colors.text, padding: moderateScale(12), borderRadius: theme.radius }]} />
@@ -135,7 +145,8 @@ export default function QuotationScreen() {
           </KeyboardAvoidingView>
         </View>
       </Modal>
-    </View>
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 

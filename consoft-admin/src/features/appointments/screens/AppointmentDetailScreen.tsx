@@ -1,12 +1,12 @@
 import React, { useMemo, useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Modal, Platform, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Modal, Platform, ScrollView, TextInput } from 'react-native';
 import { useTheme } from '../../../theme/theme';
 import { useRoute, useNavigation } from '@react-navigation/native';
 import { useAppStore, AppState } from '../../../store/appStore';
 import { Appointment } from '../../../domain/types';
 import { cancelAppointment, confirmAppointment, rescheduleAppointment as rescheduleSvc } from '../appointmentsService';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import AppointmentMap from '../components/AppointmentMap.web';
+import AppointmentMap from '../components/AppointmentMap.native';
 import { Ionicons } from '@expo/vector-icons';
 import { scale, verticalScale, moderateScale, responsiveFontSize } from '../../../theme/responsive';
 import { useToast } from '../../../ui/ToastProvider';
@@ -59,7 +59,7 @@ export default function AppointmentDetailScreen() {
   const hasDateChanged = useMemo(() => initialized && minutesSinceEpoch(mergedNow) !== initialMinuteRef.current, [initialized, mergedNow]);
 
   const monthLabel = useMemo(() =>
-    calendarMonth.toLocaleString('default', { month: 'long', year: 'numeric' }),
+    calendarMonth.toLocaleDateString('es-ES', { month: 'long', year: 'numeric' }),
   [calendarMonth]);
 
   const monthDays: Date[] = useMemo(() => {
@@ -91,20 +91,35 @@ export default function AppointmentDetailScreen() {
       keyboardShouldPersistTaps="handled"
       showsVerticalScrollIndicator
     >
-      <Text style={[styles.title, { color: theme.colors.text, fontSize: responsiveFontSize(18) }]}>{appointment.title}</Text>
-      <View style={[styles.infoCard, { backgroundColor: theme.colors.card, borderColor: theme.colors.border, borderRadius: theme.radius, padding: moderateScale(12) }]}> 
+      <Text style={[styles.title, { color: theme.colors.text, fontSize: responsiveFontSize(18) }]}>Cita</Text>
+      <View style={[styles.infoCard, { backgroundColor: theme.colors.background, borderColor: theme.colors.border, borderRadius: theme.radius, padding: moderateScale(12) }]}> 
         <Text style={[styles.infoLabel, { color: theme.colors.muted, fontSize: responsiveFontSize(12) }]}>*Nombre y Apellidos</Text>
-        <Text style={[styles.infoName, { color: theme.colors.text, fontSize: responsiveFontSize(16) }]} numberOfLines={1}>{appointment.title}</Text>
+        <TextInput
+          value={appointment.title}
+          onChangeText={(t) => useAppStore.setState((s) => ({ appointments: s.appointments.map((a) => a.id === appointment.id ? { ...a, title: t, updatedAt: new Date().toISOString() } : a) }))}
+          placeholder="Nombre y apellidos"
+          placeholderTextColor={theme.colors.muted}
+          style={{ borderWidth: 1, borderColor: theme.colors.border, borderRadius: theme.radius, padding: 12, color: theme.colors.text, backgroundColor: theme.colors.card }}
+        />
         <Text style={[styles.infoLabel, { color: theme.colors.muted, marginTop: 8, fontSize: responsiveFontSize(12) }]}>Dirección</Text>
-        <Text style={[styles.infoValue, { color: theme.colors.text, fontSize: responsiveFontSize(14) }]} numberOfLines={2}>Birmingham 5th ave N cr 280</Text>
+        <TextInput
+          value={appointment.address ?? ''}
+          onChangeText={(t) => useAppStore.setState((s) => ({ appointments: s.appointments.map((a) => a.id === appointment.id ? { ...a, address: t, updatedAt: new Date().toISOString() } : a) }))}
+          placeholder="Dirección"
+          placeholderTextColor={theme.colors.muted}
+          style={{ borderWidth: 1, borderColor: theme.colors.border, borderRadius: theme.radius, padding: 12, color: theme.colors.text, backgroundColor: theme.colors.card }}
+        />
       </View>
-      <View style={[styles.mapContainer, { borderColor: theme.colors.border, backgroundColor: theme.colors.card, borderRadius: theme.radius, height: verticalScale(200) }]}> 
+      <View style={[styles.mapContainer, { borderColor: theme.colors.border, backgroundColor: theme.colors.card, borderRadius: theme.radius, height: verticalScale(160) }]}> 
         <AppointmentMap
           latitude={appointment.location ? appointment.location.coordinates[1] : 52.4862}
           longitude={appointment.location ? appointment.location.coordinates[0] : -1.8904}
+          draggable
+          onChangeLocation={(lon, lat) => updateLocation(appointment.id, lon, lat)}
         />
       </View>
-      <View style={[styles.calendarCard, { backgroundColor: theme.colors.card, borderColor: theme.colors.border, borderRadius: theme.radius, padding: moderateScale(12) }]}> 
+      <Text style={{ color: theme.colors.muted, marginTop: 8, marginBottom: 6, fontSize: responsiveFontSize(12) }}>Fecha y Hora</Text>
+      <View style={[styles.calendarCard, { backgroundColor: theme.colors.background, borderColor: theme.colors.border, borderRadius: theme.radius, padding: moderateScale(12) }]}> 
         <Text style={[styles.calendarTitle, { color: theme.colors.text, fontSize: responsiveFontSize(14) }]}>Fecha y Hora</Text>
         <View style={styles.calendarHeader}>
           <TouchableOpacity onPress={() => setCalendarMonth(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() - 1, 1))} style={[styles.navBtn, { borderColor: theme.colors.border, borderRadius: theme.radius }]}> 
@@ -116,7 +131,7 @@ export default function AppointmentDetailScreen() {
           </TouchableOpacity>
         </View>
         <View style={styles.weekHeaderRow}>
-          {['SUN','MON','TUE','WED','THU','FRI','SAT'].map((d) => (
+          {['DOM','LUN','MAR','MIÉ','JUE','VIE','SÁB'].map((d) => (
             <Text key={d} style={[styles.weekHeader, { color: theme.colors.muted, fontSize: responsiveFontSize(10) }]}>{d}</Text>
           ))}
         </View>

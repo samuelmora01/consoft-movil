@@ -30,28 +30,28 @@ export default function ProfileScreen() {
       {/* Items */}
       <View style={styles.section}> 
         <View style={styles.itemRow}>
-          <View style={[styles.iconWrap, { backgroundColor: '#EEE9F8', borderColor: '#E6E0F2' }]}> 
+          <View style={[styles.iconWrap, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}> 
             <Ionicons name="moon" size={18} color={theme.colors.text} />
           </View>
           <Text style={[styles.itemText, { color: theme.colors.text, flex: 1 }]}>Modo Oscuro</Text>
           <Switch value={isDark} onValueChange={toggleMode} />
         </View>
         <TouchableOpacity style={styles.itemRow} onPress={() => navigation.navigate('EditProfile') }>
-          <View style={[styles.iconWrap, { backgroundColor: '#EEE9F8', borderColor: '#E6E0F2' }]}> 
+          <View style={[styles.iconWrap, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}> 
             <Ionicons name="person" size={18} color={theme.colors.text} />
           </View>
           <Text style={[styles.itemText, { color: theme.colors.text, flex: 1 }]}>Editar mi perfil</Text>
           <Ionicons name="chevron-forward" size={18} color={theme.colors.muted} />
         </TouchableOpacity>
         <TouchableOpacity style={styles.itemRow} onPress={() => navigation.navigate('ChangePassword') }>
-          <View style={[styles.iconWrap, { backgroundColor: '#EEE9F8', borderColor: '#E6E0F2' }]}> 
+          <View style={[styles.iconWrap, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}> 
             <Ionicons name="lock-closed" size={18} color={theme.colors.text} />
           </View>
           <Text style={[styles.itemText, { color: theme.colors.text, flex: 1 }]}>Cambiar mi contraseña</Text>
           <Ionicons name="chevron-forward" size={18} color={theme.colors.muted} />
         </TouchableOpacity>
         <TouchableOpacity style={styles.itemRow} onPress={() => navigation.navigate('EditStatus') }>
-          <View style={[styles.iconWrap, { backgroundColor: '#EEE9F8', borderColor: '#E6E0F2' }]}> 
+          <View style={[styles.iconWrap, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}> 
             <Ionicons name="shield-checkmark" size={18} color={theme.colors.text} />
           </View>
           <Text style={[styles.itemText, { color: theme.colors.text, flex: 1 }]}>Editar mi Estado</Text>

@@ -21,7 +21,7 @@ export interface AppState {
   setAppointmentStatus: (id: UUID, status: AppointmentStatus) => void;
   rescheduleAppointment: (id: UUID, newISODate: string) => void;
   updateAppointmentLocation: (id: UUID, longitude: number, latitude: number) => void;
-  createAppointment: (payload: { title: string; clientId: UUID; datetimeISO: string }) => Appointment;
+  createAppointment: (payload: { title: string; clientId: UUID; datetimeISO: string; address?: string }) => Appointment;
   documents: SalesDocument[];
   createDocument: (clientId: UUID) => SalesDocument;
   removeDocument: (documentId: UUID) => void;
@@ -61,7 +61,7 @@ export const useAppStore = create<AppState>((set) => ({
           : appointment,
       ),
     })),
-  createAppointment: ({ title, clientId, datetimeISO }) => {
+  createAppointment: ({ title, clientId, datetimeISO, address }) => {
     const now = new Date().toISOString();
     const appt: Appointment = {
       id: generateId(),
@@ -73,6 +73,7 @@ export const useAppStore = create<AppState>((set) => ({
       createdAt: now,
       updatedAt: now,
       location: { type: 'Point', coordinates: [-1.8904, 52.4862] },
+      address,
     };
     set((state) => ({ appointments: [appt, ...state.appointments] }));
     return appt;
