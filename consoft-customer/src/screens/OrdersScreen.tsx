@@ -44,6 +44,19 @@ export default function OrdersScreen({ navigation }: any) {
     );
   };
 
+  if (orders.length === 0) {
+    return (
+      <View style={[styles.container, { alignItems: 'center', justifyContent: 'center' }] }>
+        <Ionicons name="bed-outline" size={112} color="#6b7280" />
+        <Text style={styles.emptyTitle}>¡Uups!</Text>
+        <Text style={styles.emptySubtitle}>Aún no tienes pedidos</Text>
+        <TouchableOpacity style={styles.ctaBtn} onPress={() => navigation.navigate('Buscar')}>
+          <Text style={styles.ctaText}>Buscar inmuebles</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
   return (
     <FlatList
       style={styles.container}
@@ -58,6 +71,10 @@ export default function OrdersScreen({ navigation }: any) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#fff' },
+  emptyTitle: { fontSize: 22, fontWeight: '800', color: '#111827', marginTop: 12 },
+  emptySubtitle: { color: '#6b7280', marginTop: 8, marginBottom: 16 },
+  ctaBtn: { backgroundColor: '#6b4028', paddingVertical: 12, paddingHorizontal: 20, borderRadius: 999, marginTop: 6 },
+  ctaText: { color: '#fff', fontWeight: '700' },
   card: { flexDirection: 'row', backgroundColor: '#fff', borderRadius: 20, padding: 12, borderWidth: 1, borderColor: '#f3e5dc' },
   thumb: { width: 70, height: 70, borderRadius: 12 },
   cardTitle: { fontWeight: '800', color: '#111827' },

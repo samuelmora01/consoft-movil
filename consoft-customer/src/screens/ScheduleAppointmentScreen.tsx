@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { useToast } from '../ui/ToastProvider';
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, Modal, FlatList, Alert } from 'react-native';
+import { View, Text, StyleSheet, TextInput, TouchableOpacity, Modal, FlatList, Alert, Animated, Easing, Pressable, Image } from 'react-native';
+import { useUserStore } from '../store/userStore';
 import { Ionicons } from '@expo/vector-icons';
 
 type Props = {
@@ -37,22 +38,27 @@ function generateMonthMatrix(year: number, monthIndex: number) {
   return weeks;
 }
 
-const HOURS = Array.from({ length: 12 }).map((_, i) => {
-  const hour = 8 + i; // 08 to 19
-  const label = `${hour.toString().padStart(2, '0')}:00`;
-  return label;
-});
+const TIMES = (() => {
+  const list: string[] = [];
+  for (let h = 8; h <= 19; h += 1) {
+    [0, 15, 30, 45].forEach((m) => {
+      list.push(`${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`);
+    });
+  }
+  return list;
+})();
 
 export default function ScheduleAppointmentScreen({ route, navigation }: Props) {
   const productTitle = route?.params?.item?.title ?? 'Agendar una cita con nosotros';
   const toast = useToast();
+  const contact = useUserStore((s) => s.contact);
 
   const today = new Date();
-  const [name, setName] = useState('');
-  const [email, setEmail] = useState('');
-  const [phone, setPhone] = useState('');
+  const [defaultAddress, setDefaultAddress] = useState(contact?.defaultAddress ?? '');
+  const [useDefaultAddress, setUseDefaultAddress] = useState(true);
+  const [customAddress, setCustomAddress] = useState('');
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
-  const [selectedHour, setSelectedHour] = useState<string>('17:00');
+  const [selectedTime, setSelectedTime] = useState<string>('17:00');
   const [openCalendar, setOpenCalendar] = useState(false);
   const [openHourPicker, setOpenHourPicker] = useState(false);
   const [monthIndex, setMonthIndex] = useState<number>(today.getMonth());
@@ -79,8 +85,13 @@ export default function ScheduleAppointmentScreen({ route, navigation }: Props) 
   );
 
   const submit = () => {
-    if (!name || !selectedDate || !selectedHour) {
-      toast.show('Completa nombre, fecha y hora', 'error');
+    if (!selectedDate || !selectedTime) {
+      toast.show('Completa fecha y hora', 'error');
+      return;
+    }
+    if (!contact?.backupEmail || !contact?.backupPhone || !contact?.defaultAddress) {
+      navigation.navigate('ContactInfo');
+      toast.show('Completa tu información de contacto', 'error');
       return;
     }
     const dateStr = selectedDate.toISOString().split('T')[0];
@@ -92,24 +103,21 @@ export default function ScheduleAppointmentScreen({ route, navigation }: Props) 
     <View style={styles.container}>
       <Text style={styles.title}>Agenda una cita con nosotros</Text>
 
-      <View style={styles.field}>
-        <Text style={styles.label}>* Nombre y apellidos</Text>
-        <TextInput value={name} onChangeText={setName} placeholder="Tu nombre" style={styles.input} />
-      </View>
-      <View style={styles.field}>
-        <Text style={styles.label}>Correo</Text>
-        <TextInput
-          value={email}
-          onChangeText={setEmail}
-          placeholder="correo@correo.com"
-          keyboardType="email-address"
-          autoCapitalize="none"
-          style={styles.input}
+      <Text style={[styles.label, { marginTop: 14 }]}>Dirección</Text>
+      <TouchableOpacity style={styles.timeRow} onPress={() => setUseDefaultAddress((v) => !v)}>
+        <Text style={{ color: '#333', flex: 1 }}>{useDefaultAddress ? (defaultAddress || 'Usar dirección predeterminada') : (customAddress || 'Añadir dirección diferente')}</Text>
+        <Ionicons name="swap-vertical" size={18} color="#6b4028" />
+      </TouchableOpacity>
+      {!useDefaultAddress && (
+        <TextInput value={customAddress} onChangeText={setCustomAddress} placeholder="Escribe la dirección para esta cita" style={[styles.input, { marginTop: 8 }]} />
+      )}
+
+      <View style={styles.mapContainer}>
+        <Image
+          source={{ uri: 'https://tile.openstreetmap.org/12/1205/1541.png' }}
+          style={styles.mapImage}
+          resizeMode="cover"
         />
-      </View>
-      <View style={styles.field}>
-        <Text style={styles.label}>Celular</Text>
-        <TextInput value={phone} onChangeText={setPhone} placeholder="300 000 0000" keyboardType="phone-pad" style={styles.input} />
       </View>
 
       <TouchableOpacity style={styles.dateButton} onPress={() => setOpenCalendar(true)}>
@@ -118,7 +126,7 @@ export default function ScheduleAppointmentScreen({ route, navigation }: Props) 
 
       <Text style={[styles.label, { marginTop: 14 }]}>Hora</Text>
       <TouchableOpacity style={styles.timeRow} onPress={() => setOpenHourPicker(true)}>
-        <Text style={{ color: '#333' }}>{selectedHour}</Text>
+        <Text style={{ color: '#333' }}>{selectedTime}</Text>
         <Ionicons name="chevron-down" size={18} color="#6b4028" />
       </TouchableOpacity>
 
@@ -126,9 +134,8 @@ export default function ScheduleAppointmentScreen({ route, navigation }: Props) 
         <Text style={styles.submitText}>Agendar</Text>
       </TouchableOpacity>
 
-      <Modal visible={openCalendar} transparent animationType="fade" onRequestClose={() => setOpenCalendar(false)}>
-        <View style={styles.modalBackdrop}>
-          <View style={styles.calendarCard}>
+      <BottomSheet visible={openCalendar} onClose={() => setOpenCalendar(false)}>
+        <View style={styles.calendarCard}>
             <Text style={styles.calendarTitle}>Selecciona una fecha</Text>
             <View style={styles.calendarHeader}>
               <TouchableOpacity onPress={onPrevMonth}>
@@ -169,31 +176,30 @@ export default function ScheduleAppointmentScreen({ route, navigation }: Props) 
                 })}
               </View>
             ))}
-          </View>
         </View>
-      </Modal>
+      </BottomSheet>
 
-      <Modal visible={openHourPicker} transparent animationType="fade" onRequestClose={() => setOpenHourPicker(false)}>
-        <View style={styles.modalBackdrop}>
-          <View style={styles.timeCard}>
-            <FlatList
-              data={HOURS}
-              keyExtractor={(k) => k}
-              renderItem={({ item }) => (
-                <TouchableOpacity
-                  style={styles.timeItem}
-                  onPress={() => {
-                    setSelectedHour(item);
-                    setOpenHourPicker(false);
-                  }}
-                >
-                  <Text style={{ color: '#333' }}>{item}</Text>
-                </TouchableOpacity>
-              )}
-            />
-          </View>
+      <BottomSheet visible={openHourPicker} onClose={() => setOpenHourPicker(false)}>
+        <View style={styles.timeCard}>
+          <FlatList
+            data={TIMES}
+            keyExtractor={(k) => k}
+            renderItem={({ item }) => (
+              <TouchableOpacity
+                style={styles.timeItem}
+                onPress={() => {
+                  setSelectedTime(item);
+                  setOpenHourPicker(false);
+                }}
+              >
+                <Text style={{ color: '#333' }}>{item}</Text>
+              </TouchableOpacity>
+            )}
+          />
         </View>
-      </Modal>
+      </BottomSheet>
+
+      {/* Contact info moved to separate screen */}
     </View>
   );
 }
@@ -236,6 +242,41 @@ const styles = StyleSheet.create({
 
   timeCard: { backgroundColor: '#fff', borderRadius: 16, maxHeight: 320, paddingVertical: 8 },
   timeItem: { paddingVertical: 12, paddingHorizontal: 16 },
+  contactBtn: { },
+  contactBtnText: { },
+  contactCard: { },
+  mapContainer: { marginTop: 10, borderRadius: 12, overflow: 'hidden', borderWidth: 1, borderColor: '#e6ded8' },
+  mapImage: { width: '100%', height: 160 },
 });
+
+// Bottom sheet component similar to other screens
+function BottomSheet({ visible, onClose, children }: { visible: boolean; onClose: () => void; children: React.ReactNode }) {
+  const translateY = React.useRef(new Animated.Value(400)).current;
+  const opacity = React.useRef(new Animated.Value(0)).current;
+
+  React.useEffect(() => {
+    if (visible) {
+      opacity.setValue(0);
+      translateY.setValue(400);
+      Animated.sequence([
+        Animated.timing(opacity, { toValue: 1, duration: 120, useNativeDriver: true, easing: Easing.out(Easing.quad) }),
+        Animated.timing(translateY, { toValue: 0, duration: 220, useNativeDriver: true, easing: Easing.out(Easing.cubic) }),
+      ]).start();
+    }
+  }, [visible]);
+
+  if (!visible) return null;
+
+  return (
+    <View style={{ ...StyleSheet.absoluteFillObject, justifyContent: 'flex-end' }}>
+      <Pressable style={{ ...StyleSheet.absoluteFillObject }} onPress={onClose}>
+        <Animated.View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.35)', opacity }} />
+      </Pressable>
+      <Animated.View style={[{ backgroundColor: '#fff', borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 16, maxHeight: '85%' }, { transform: [{ translateY }] }]}>
+        {children}
+      </Animated.View>
+    </View>
+  );
+}
 
 

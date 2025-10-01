@@ -2,6 +2,7 @@ import React from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
+import { TouchableOpacity } from 'react-native';
 import SearchScreen from '../screens/SearchScreen';
 import SavedScreen from '../screens/SavedScreen';
 import OrdersScreen from '../screens/OrdersScreen';
@@ -13,6 +14,7 @@ import EditStatusScreen from '../screens/profile/EditStatusScreen';
 import ProductDetailScreen from '../screens/ProductDetailScreen';
 import ScheduleAppointmentScreen from '../screens/ScheduleAppointmentScreen';
 import ServiceDetailScreen from '../screens/ServiceDetailScreen';
+import ContactInfoScreen from '../screens/ContactInfoScreen';
 
 const Tab = createBottomTabNavigator();
 const SearchStack = createNativeStackNavigator();
@@ -21,18 +23,39 @@ const SavedStack = createNativeStackNavigator();
 
 function SearchStackNavigator() {
   return (
-    <SearchStack.Navigator>
+    <SearchStack.Navigator
+      screenOptions={({ navigation }) => ({
+        headerTitle: '',
+        headerShadowVisible: false,
+        headerLeft: () => (
+          <TouchableOpacity onPress={() => navigation.goBack()} style={{ paddingHorizontal: 8, paddingVertical: 6 }}>
+            <Ionicons name="chevron-back" size={18} />
+          </TouchableOpacity>
+        ),
+      })}
+    >
       <SearchStack.Screen name="SearchHome" component={SearchScreen} options={{ headerShown: false }} />
       <SearchStack.Screen name="ProductDetail" component={ProductDetailScreen} options={{ title: 'Mueble' }} />
       <SearchStack.Screen name="ServiceDetail" component={ServiceDetailScreen} options={{ title: 'Servicio' }} />
       <SearchStack.Screen name="Schedule" component={ScheduleAppointmentScreen} options={{ title: 'Agendar' }} />
+      <SearchStack.Screen name="ContactInfo" component={ContactInfoScreen} options={{ title: 'Contacto' }} />
     </SearchStack.Navigator>
   );
 }
 
 function ProfileStackNavigator() {
   return (
-    <ProfileStack.Navigator>
+    <ProfileStack.Navigator
+      screenOptions={({ navigation }) => ({
+        headerTitle: '',
+        headerShadowVisible: false,
+        headerLeft: () => (
+          <TouchableOpacity onPress={() => navigation.goBack()} style={{ paddingHorizontal: 8, paddingVertical: 6 }}>
+            <Ionicons name="chevron-back" size={18} />
+          </TouchableOpacity>
+        ),
+      })}
+    >
       <ProfileStack.Screen name="ProfileHome" component={ProfileScreen} options={{ headerShown: false }} />
       <ProfileStack.Screen name="ChangePassword" component={ChangePasswordScreen} options={{ title: 'Cambiar contraseña' }} />
       <ProfileStack.Screen name="EditProfile" component={EditProfileScreen} options={{ title: 'Editar perfil' }} />
@@ -48,7 +71,7 @@ export default function CustomerNavigator() {
         headerShown: false,
         tabBarIcon: ({ color, size }) => {
           let icon: keyof typeof Ionicons.glyphMap = 'home-outline';
-          if (route.name === 'Buscar') icon = 'search-outline';
+          if (route.name === 'Buscar') icon = 'home-outline';
           if (route.name === 'Guardado') icon = 'bookmark-outline';
           if (route.name === 'Mis pedidos') icon = 'pricetags-outline';
           if (route.name === 'Perfil') icon = 'person-circle-outline';
@@ -68,7 +91,17 @@ export default function CustomerNavigator() {
       </Tab.Screen>
       <Tab.Screen name="Mis pedidos" options={{ headerShown: false }}>
         {() => (
-          <SearchStack.Navigator>
+          <SearchStack.Navigator
+            screenOptions={({ navigation }) => ({
+              headerTitle: '',
+              headerShadowVisible: false,
+              headerLeft: () => (
+                <TouchableOpacity onPress={() => navigation.goBack()} style={{ paddingHorizontal: 8, paddingVertical: 6 }}>
+                  <Ionicons name="chevron-back" size={18} />
+                </TouchableOpacity>
+              ),
+            })}
+          >
             <SearchStack.Screen name="OrdersHome" component={OrdersScreen} options={{ headerShown: false }} />
             <SearchStack.Screen name="OrderDetail" component={OrderDetailCustomerScreen} options={{ title: 'Pedido' }} />
             <SearchStack.Screen name="OrderPayment" component={require('../screens/OrderPaymentScreen').default} options={{ title: 'Pago' }} />

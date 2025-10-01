@@ -1,67 +1,91 @@
-import React, { createContext, useContext, useMemo, useState } from 'react';
+import React, { createContext, useCallback, useContext, useMemo, useState } from 'react';
 
-export type Theme = {
-  mode: 'light' | 'dark';
-  colors: {
-    primary: string;
-    background: string;
-    card: string;
-    text: string;
-    border: string;
-    muted: string;
-    success: string;
-    danger: string;
-    warning: string;
-  };
+export type ThemeMode = 'light' | 'dark';
+
+export interface ThemeColors {
+  primary: string;
+  background: string;
+  card: string;
+  text: string;
+  border: string;
+  muted: string;
+  danger: string;
+  success: string;
+  warning: string;
+}
+
+export interface Theme {
+  mode: ThemeMode;
+  colors: ThemeColors;
+  spacing: (multiplier?: number) => number;
+  radius: number;
+}
+
+const base = {
+  spacing: (m: number = 1) => 8 * m,
+  radius: 10,
 };
 
 export const lightTheme: Theme = {
   mode: 'light',
   colors: {
-    primary: '#6b4028',
-    background: '#ffffff',
-    card: '#ffffff',
-    text: '#1f2937',
-    border: '#e5e7eb',
-    muted: '#6b7280',
-    success: '#16a34a',
-    danger: '#dc2626',
-    warning: '#f59e0b',
+    primary: '#6E3B1E',
+    background: '#FFFFFF',
+    card: '#F6F2EF',
+    text: '#1A1A1A',
+    border: '#E3DED9',
+    muted: '#8A817C',
+    danger: '#E85959',
+    success: '#2EB872',
+    warning: '#F6C453',
   },
+  ...base,
 };
 
 export const darkTheme: Theme = {
   mode: 'dark',
   colors: {
-    primary: '#caa389',
-    background: '#0b0b0b',
-    card: '#111111',
-    text: '#f3f4f6',
-    border: '#1f2937',
-    muted: '#9ca3af',
-    success: '#22c55e',
-    danger: '#ef4444',
-    warning: '#f59e0b',
+    primary: '#A66A3E',
+    background: '#0F0F0F',
+    card: '#1B1B1B',
+    text: '#F2F2F2',
+    border: '#2A2A2A',
+    muted: '#9B9B9B',
+    danger: '#FF6B6B',
+    success: '#3EDC97',
+    warning: '#D9A441',
   },
+  ...base,
 };
 
-type ThemeContextValue = {
+interface ThemeContextValue {
   theme: Theme;
-  toggle: () => void;
-};
+  toggleMode: () => void;
+  setMode: (mode: ThemeMode) => void;
+}
 
 const ThemeContext = createContext<ThemeContextValue | undefined>(undefined);
 
-export function ThemeProvider({ initialTheme = lightTheme, children }: { initialTheme?: Theme; children: React.ReactNode }) {
+export const ThemeProvider: React.FC<{ initialTheme?: Theme; children: React.ReactNode }> = ({
+  initialTheme = lightTheme,
+  children,
+}) => {
   const [theme, setTheme] = useState<Theme>(initialTheme);
-  const value = useMemo(() => ({
-    theme,
-    toggle: () => setTheme((t) => (t.mode === 'light' ? darkTheme : lightTheme)),
-  }), [theme]);
-  return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
-}
 
-export function useTheme() {
+  const toggleMode = useCallback(() => {
+    setTheme((prev) => (prev.mode === 'light' ? { ...darkTheme } : { ...lightTheme }));
+  }, []);
+
+  const setMode = useCallback((mode: ThemeMode) => {
+    setTheme(mode === 'light' ? { ...lightTheme } : { ...darkTheme });
+  }, []);
+
+  const value = useMemo(() => ({ theme, toggleMode, setMode }), [theme, toggleMode, setMode]);
+
+  return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
+};
+
+export function useTheme(): ThemeContextValue {
   const ctx = useContext(ThemeContext);
   if (!ctx) throw new Error('useTheme must be used within ThemeProvider');
   return ctx;
