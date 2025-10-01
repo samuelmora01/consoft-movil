@@ -11,7 +11,7 @@ import {
 export interface AppState {
   // Auth
   isSignedIn: boolean;
-  signIn: (email: string) => void;
+  signIn: (email?: string) => void;
   signOut: () => void;
   profile: { name: string; email: string; phone?: string; address?: string; avatarUrl?: string } | null;
   updateProfile: (payload: Partial<{ name: string; email: string; phone?: string; address?: string; avatarUrl?: string }>) => void;

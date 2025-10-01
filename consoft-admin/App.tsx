@@ -4,12 +4,15 @@ import { StatusBar } from 'expo-status-bar';
 import { useMemo, useState, useEffect } from 'react';
 import { Platform } from 'react-native';
 import { ThemeProvider, useTheme, lightTheme, darkTheme } from './src/theme/theme';
+import { useAppStore } from './src/store/appStore';
 import AppNavigator from './src/navigation/AppNavigator';
 import CustomerNavigator from './src/navigation/CustomerNavigator';
 import { ToastProvider } from './src/ui/ToastProvider';
 
 function NavigationRoot() {
   const { theme } = useTheme();
+  const seedAppointments = useAppStore((s) => s.seedAppointments);
+  const hasAppointments = useAppStore((s) => s.appointments.length > 0);
   const [useCustomer, setUseCustomer] = useState(false);
 
   useEffect(() => {
@@ -18,6 +21,9 @@ function NavigationRoot() {
       if (path.startsWith('/customer')) {
         setUseCustomer(true);
       }
+    }
+    if (!hasAppointments) {
+      try { seedAppointments(6); } catch {}
     }
   }, []);
   const navigationTheme = useMemo(() => {

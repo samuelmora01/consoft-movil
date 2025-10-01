@@ -99,10 +99,7 @@ export default function AppNavigator() {
   return (
     <RootStack.Navigator screenOptions={{ headerShown: false }}>
       {isSignedIn ? (
-        <>
-          <RootStack.Screen name="Main" component={MainTabs} />
-          <RootStack.Screen name="Customer" component={CustomerNavigator} />
-        </>
+        <RootStack.Screen name="Main" component={MainTabs} />
       ) : (
         <RootStack.Screen name="Auth" component={AuthNavigator} />
       )}

@@ -54,7 +54,11 @@ export default function HomeScreen() {
         contentContainerStyle={{ paddingTop: 12, paddingBottom: 120 }}
         ListFooterComponent={<View style={{ height: 16 }} />}
         renderItem={({ item: a }) => (
-          <TouchableOpacity activeOpacity={0.85} onPress={() => navigation.navigate('AppointmentDetail', { id: a.id })} style={[styles.card, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}> 
+          <TouchableOpacity
+            activeOpacity={0.85}
+            onPress={() => navigation.navigate('Inicio' as never, { screen: 'AppointmentDetail', params: { id: a.id } } as never)}
+            style={[styles.card, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}
+          > 
             <Text style={{ color: theme.colors.text, fontWeight: '700' }}>{a.title}</Text>
             <Text style={{ color: theme.colors.muted }}>servicios 3</Text>
             <Text style={{ color: theme.colors.text, fontWeight: '700', position: 'absolute', right: 16, top: 16 }}>{new Date(a.datetime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</Text>
@@ -71,7 +75,7 @@ export default function HomeScreen() {
           </TouchableOpacity>
         )}
       />
-      <TouchableOpacity onPress={() => navigation.navigate('AppointmentCreate')} style={[styles.fab, { backgroundColor: theme.colors.primary }]}> 
+      <TouchableOpacity onPress={() => navigation.navigate('Inicio' as never, { screen: 'AppointmentCreate' } as never)} style={[styles.fab, { backgroundColor: theme.colors.primary }]}> 
         <Text style={{ color: '#fff', fontWeight: '700' }}>Crear visita</Text>
       </TouchableOpacity>
 

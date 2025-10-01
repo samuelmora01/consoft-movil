@@ -20,7 +20,9 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "edgeToEdgeEnabled": true
+      "edgeToEdgeEnabled": true,
+      "package": "com.consoft.admin",
+      "versionCode": 1
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -28,6 +30,12 @@
     "plugins": [
       "expo-font",
       "expo-maps"
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "3ac0235d-7f85-4fab-b781-02339fd42418"
+      }
+    },
+    "owner": "samuelmora01"
   }
 }
