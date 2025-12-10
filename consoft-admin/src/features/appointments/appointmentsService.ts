@@ -28,9 +28,3 @@ export async function rescheduleAppointment(id: UUID, newISODate: string): Promi
   rescheduleAppointment(id, newISODate);
 }
 
-export async function seedAppointments(count?: number): Promise<void> {
-  const { seedAppointments } = useAppStore.getState();
-  seedAppointments(count);
-}
-
-

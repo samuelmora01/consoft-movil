@@ -1,8 +1,11 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { View, Text, StyleSheet, TextInput, TouchableOpacity, FlatList, Image, Modal, Pressable, Animated, Easing } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useUserStore } from '../store/userStore';
 import { useFavoritesStore } from '../store/favoritesStore';
+import { API } from '../config';
+import { ProductsApi, ServicesApi } from '../api/client';
+import FloatingCartButton from '../components/FloatingCartButton';
 
 type CatalogItem = {
   id: string;
@@ -11,12 +14,7 @@ type CatalogItem = {
   image: string;
 };
 
-const SAMPLE_DATA: CatalogItem[] = Array.from({ length: 8 }).map((_, i) => ({
-  id: String(i + 1),
-  title: 'Mueble 2 espacios',
-  material: 'Cuero · cuerina',
-  image: 'https://images.unsplash.com/photo-1501045661006-fcebe0257c3f?q=80&w=1200&auto=format&fit=crop',
-}));
+const SAMPLE_DATA: CatalogItem[] = [];
 
 type ServiceItem = {
   id: string;
@@ -25,26 +23,7 @@ type ServiceItem = {
   image: string;
 };
 
-const SERVICES_DATA: ServiceItem[] = [
-  {
-    id: 's1',
-    title: 'Tapizado personalizado',
-    description: 'Personalizamos tus muebles con telas y colores a tu gusto',
-    image: 'https://images.unsplash.com/photo-1520881363902-a0ff4e722963?q=80&w=1200&auto=format&fit=crop',
-  },
-  {
-    id: 's2',
-    title: 'Restauración de muebles',
-    description: 'Reparamos y decoramos a la vida antigua y muebles antiguos',
-    image: 'https://images.unsplash.com/photo-1520881363902-a0ff4e722963?q=80&w=1200&auto=format&fit=crop',
-  },
-  {
-    id: 's3',
-    title: 'Fabricación a medida',
-    description: 'Creamos muebles a la medida con acabados de alta calidad',
-    image: 'https://images.unsplash.com/photo-1505693416388-ac5ce068fe85?q=80&w=1200&auto=format&fit=crop',
-  },
-];
+const SERVICES_DATA: ServiceItem[] = [];
 
 export default function SearchScreen({ navigation }: any) {
   const contact = useUserStore((s) => s.contact);
@@ -71,7 +50,93 @@ export default function SearchScreen({ navigation }: any) {
     setSelectedTypes((prev) => (prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name]));
   };
 
-  const data = useMemo(() => SAMPLE_DATA, []);
+  const [products, setProducts] = useState<CatalogItem[]>([]);
+  const [services, setServices] = useState<ServiceItem[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    (async () => {
+      try {
+        if (!API) return;
+        setLoading(true);
+        const [prodsRes, servRes] = await Promise.allSettled([ProductsApi(API).list(), ServicesApi(API).list()]);
+        const prodsList: any[] =
+          prodsRes.status === 'fulfilled'
+            ? (prodsRes.value as any).products || (Array.isArray(prodsRes.value) ? prodsRes.value : [])
+            : [];
+        const servList: any[] =
+          servRes.status === 'fulfilled'
+            ? (servRes.value as any).services || (Array.isArray(servRes.value) ? servRes.value : [])
+            : [];
+        const mappedP: CatalogItem[] = prodsList.map((p: any, idx: number) => ({
+          id: p._id || p.id || String(idx),
+          title: p.name || p.title || 'Producto',
+          material: p.material || p.category?.name || p.subtitle || '',
+          image: p.featuredImage || (Array.isArray(p.images) ? p.images[0] : undefined) || 'https://images.unsplash.com/photo-1501045661006-fcebe0257c3f?q=80&w=1200&auto=format&fit=crop',
+        }));
+        const mappedS: ServiceItem[] = servList.map((s: any, idx: number) => ({
+          id: s._id || s.id || String(idx),
+          title: s.name || s.title || 'Servicio',
+          description: s.description || '',
+          image: s.featuredImage || (Array.isArray(s.images) ? s.images[0] : undefined) || 'https://images.unsplash.com/photo-1520881363902-a0ff4e722963?q=80&w=1200&auto=format&fit=crop',
+        }));
+        setProducts(mappedP);
+        setServices(mappedS);
+        setError(null);
+      } catch (e) {
+        setError((e as Error)?.message || 'No se pudo cargar catálogo');
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
+  async function runProductSearch() {
+    try {
+      if (!API) return;
+      setLoading(true);
+      // Infer numeric ranges either from min/max inputs or selected bands like "90.000COP - 100.000"
+      let minPriceNum: number | undefined = priceMin ? Number(String(priceMin).replace(/[^\d]/g, '')) : undefined;
+      let maxPriceNum: number | undefined = priceMax ? Number(String(priceMax).replace(/[^\d]/g, '')) : undefined;
+      if ((!minPriceNum || !maxPriceNum) && selectedBands.length) {
+        const first = selectedBands[0];
+        const nums = (first.match(/\d+/g) || []).map((s) => Number(s));
+        if (nums.length >= 2) {
+          minPriceNum = minPriceNum ?? nums[0];
+          maxPriceNum = maxPriceNum ?? nums[1];
+        }
+      }
+      const params: Record<string, unknown> = {};
+      if (selectedTypes.length) {
+        params.types = selectedTypes;
+        // synonyms
+        params.type = selectedTypes;
+        params.category = selectedTypes;
+      }
+      if (minPriceNum != null) {
+        params.minPrice = minPriceNum;
+        params.min = minPriceNum;
+      }
+      if (maxPriceNum != null) {
+        params.maxPrice = maxPriceNum;
+        params.max = maxPriceNum;
+      }
+      const res = await ProductsApi(API).list(params);
+      const prodsList: any[] = (res as any).products || (Array.isArray(res) ? res : []);
+      const mappedP: CatalogItem[] = prodsList.map((p: any, idx: number) => ({
+        id: p._id || p.id || String(idx),
+        title: p.name || p.title || 'Producto',
+        material: p.material || p.category?.name || p.subtitle || '',
+        image: p.featuredImage || (Array.isArray(p.images) ? p.images[0] : undefined) || 'https://images.unsplash.com/photo-1501045661006-fcebe0257c3f?q=80&w=1200&auto=format&fit=crop',
+      }));
+      setProducts(mappedP);
+      setError(null);
+    } catch (e) {
+      setError((e as Error)?.message || 'No se pudo filtrar productos');
+    } finally {
+      setLoading(false);
+    }
+  }
+  const data = useMemo(() => products, [products]);
   // Service tags removed per design
 
   const favoriteItems = useFavoritesStore((s) => s.items);
@@ -108,6 +173,7 @@ export default function SearchScreen({ navigation }: any) {
 
   return (
     <View style={styles.container}>
+      <FloatingCartButton top={10} left={10} />
       <View style={styles.headerBar}>
         <Text style={styles.brand}>Consoft</Text>
         <TouchableOpacity
@@ -172,7 +238,7 @@ export default function SearchScreen({ navigation }: any) {
             <Ionicons name="chevron-forward" size={18} color="#9b8c7f" />
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.searchButton}>
+          <TouchableOpacity style={styles.searchButton} onPress={runProductSearch}>
             <Text style={styles.searchText}>Buscar</Text>
             <Ionicons name="search-outline" size={16} color="#fff" style={{ marginLeft: 8 }} />
           </TouchableOpacity>
@@ -193,7 +259,7 @@ export default function SearchScreen({ navigation }: any) {
           {/* Banner informativo */}
 
           <FlatList
-            data={SERVICES_DATA}
+            data={services}
             keyExtractor={(item) => item.id}
             renderItem={renderService}
             ItemSeparatorComponent={() => <View style={{ height: 14 }} />}

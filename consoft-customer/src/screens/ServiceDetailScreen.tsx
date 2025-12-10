@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet, Image, ScrollView, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import FloatingCartButton from '../components/FloatingCartButton';
 
 type Props = {
   route: { params?: { item?: { title?: string; description?: string; image?: string } } };
@@ -19,6 +20,7 @@ export default function ServiceDetailScreen({ route, navigation }: Props) {
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 40 }}>
+      <FloatingCartButton top={10} left={10} />
       <Image source={{ uri: image }} style={styles.hero} resizeMode="cover" />
 
       <View style={styles.headerRow}>

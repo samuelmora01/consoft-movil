@@ -1,27 +1,58 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Image } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { useTheme } from '../theme/theme';
+import { API } from '../config';
+import { UsersApi, AuthApi } from '../api/client';
 
 export default function ProfileScreen() {
   const navigation = useNavigation<any>();
   const { theme, toggle } = useTheme();
+  const [me, setMe] = useState<any | null>(null);
+  useFocusEffect(
+    React.useCallback(() => {
+      (async () => {
+        try {
+          if (!API) return;
+          const res = await UsersApi(API).me();
+          const u: any = (res as any)?.user || res;
+          setMe(u);
+        } catch {}
+      })();
+      return () => {};
+    }, [])
+  );
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}> 
       <View style={[styles.card, { backgroundColor: theme.colors.background }]}> 
         <View style={styles.avatarRing}>
           <View style={styles.avatarRingInner}>
-            <Image source={{ uri: 'https://i.pravatar.cc/120?img=5' }} style={styles.avatarImg} />
+            <Image source={{ uri: (me && (me.avatarUrl || me.profile_picture || me.photoUrl)) || 'https://i.pravatar.cc/120?img=5' }} style={styles.avatarImg} />
           </View>
         </View>
         <View style={{ marginLeft: 14 }}>
-          <Text style={[styles.name, { color: theme.colors.text }]}>Samuel Mora</Text>
-          <Text style={{ color: theme.colors.muted }}>correo@correo.com</Text>
+          <Text style={[styles.name, { color: theme.colors.text }]}>{(me && (me.name || me.email)) || '-'}</Text>
+          <Text style={{ color: theme.colors.muted }}>{(me && me.email) || '-'}</Text>
         </View>
       </View>
 
       <View style={[styles.list, { backgroundColor: theme.colors.background }]}> 
+        <TouchableOpacity style={styles.row} onPress={() => navigation.navigate('Mis pedidos' as never, { screen: 'CartHome' } as never)}>
+          <View style={styles.rowLeft}>
+            <View style={styles.iconCircle}><Ionicons name="cart-outline" size={18} color={theme.colors.muted} /></View>
+            <Text style={[styles.rowText, { color: theme.colors.text }]}>Mi carrito</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color={theme.colors.muted} />
+        </TouchableOpacity>
+
+        <TouchableOpacity style={styles.row} onPress={() => navigation.navigate('ChatRoot')}>
+          <View style={styles.rowLeft}>
+            <View style={styles.iconCircle}><Ionicons name="chatbubble-ellipses-outline" size={18} color={theme.colors.muted} /></View>
+            <Text style={[styles.rowText, { color: theme.colors.text }]}>Chat con soporte</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color={theme.colors.muted} />
+        </TouchableOpacity>
         <TouchableOpacity style={styles.row} onPress={toggle}>
           <View style={styles.rowLeft}>
             <View style={styles.iconCircle}><Ionicons name="moon" size={18} color={theme.colors.muted} /></View>
@@ -49,7 +80,13 @@ export default function ProfileScreen() {
 
       <View style={{ flex: 1 }} />
 
-      <TouchableOpacity style={styles.logout} onPress={() => navigation.reset({ index: 0, routes: [{ name: 'Login' }] })}>
+      <TouchableOpacity
+        style={styles.logout}
+        onPress={async () => {
+          try { if (API) await AuthApi(API).logout(); } catch {}
+          navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
+        }}
+      >
         <View style={styles.exitCircle}><Ionicons name="exit-outline" size={18} color="#DC2626" /></View>
         <Text style={{ color: '#DC2626', fontWeight: '700', marginLeft: 8 }}>Salir</Text>
       </TouchableOpacity>

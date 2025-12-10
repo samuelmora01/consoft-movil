@@ -15,6 +15,9 @@ import ProductDetailScreen from '../screens/ProductDetailScreen';
 import ScheduleAppointmentScreen from '../screens/ScheduleAppointmentScreen';
 import ServiceDetailScreen from '../screens/ServiceDetailScreen';
 import ContactInfoScreen from '../screens/ContactInfoScreen';
+import CartScreen from '../screens/CartScreen';
+import CustomerChatRoot from '../features/chat/screens/CustomerChatRoot';
+import ChatRoomScreen from '../features/chat/screens/ChatRoomScreen';
 
 const Tab = createBottomTabNavigator();
 const SearchStack = createNativeStackNavigator();
@@ -60,6 +63,8 @@ function ProfileStackNavigator() {
       <ProfileStack.Screen name="ChangePassword" component={ChangePasswordScreen} options={{ title: 'Cambiar contraseña' }} />
       <ProfileStack.Screen name="EditProfile" component={EditProfileScreen} options={{ title: 'Editar perfil' }} />
       <ProfileStack.Screen name="EditStatus" component={EditStatusScreen} options={{ title: 'Editar estado' }} />
+      <ProfileStack.Screen name="ChatRoot" component={CustomerChatRoot} options={{ title: 'Chat' }} />
+      <ProfileStack.Screen name="ChatRoom" component={ChatRoomScreen} options={{ title: 'Chat con soporte' }} />
     </ProfileStack.Navigator>
   );
 }
@@ -105,6 +110,7 @@ export default function CustomerNavigator() {
             <SearchStack.Screen name="OrdersHome" component={OrdersScreen} options={{ headerShown: false }} />
             <SearchStack.Screen name="OrderDetail" component={OrderDetailCustomerScreen} options={{ title: 'Pedido' }} />
             <SearchStack.Screen name="OrderPayment" component={require('../screens/OrderPaymentScreen').default} options={{ title: 'Pago' }} />
+            <SearchStack.Screen name="CartHome" component={CartScreen} options={{ title: 'Carrito' }} />
           </SearchStack.Navigator>
         )}
       </Tab.Screen>

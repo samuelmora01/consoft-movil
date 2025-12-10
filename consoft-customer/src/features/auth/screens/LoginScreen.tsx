@@ -3,6 +3,9 @@ import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, Dimens
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../../theme/theme';
 import { responsiveFontSize, moderateScale, verticalScale } from '../../../theme/responsive';
+import { AuthApi } from '../../../api/client';
+import { API } from '../../../config';
+import { useToast } from '../../../ui/ToastProvider';
 
 const BROWN = '#6b4028';
 const INPUT_BG = '#EEF0F5';
@@ -15,9 +18,18 @@ export default function LoginScreen({ navigation }: any) {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [errors, setErrors] = useState<{ email?: string; password?: string }>({});
+  const { show } = useToast();
 
-  const onLogin = () => {
-    navigation.replace('Main');
+  const onLogin = async () => {
+    try {
+      if (!API) throw new Error('Configura la URL del backend (API) en app.json');
+      await AuthApi(API).login(email, password);
+      await AuthApi(API).me();
+      navigation.replace('Main');
+    } catch (e) {
+      const msg = (e as Error)?.message || 'Error al iniciar sesión';
+      show(msg, 'error');
+    }
   };
 
   return (
@@ -58,7 +70,7 @@ export default function LoginScreen({ navigation }: any) {
         </View>
         {errors.password ? <Text style={{ color: '#ef4444', marginTop: 6 }}>{errors.password}</Text> : null}
 
-        <TouchableOpacity style={{ alignSelf: 'flex-end', marginTop: 6 }}>
+        <TouchableOpacity style={{ alignSelf: 'flex-end', marginTop: 6 }} onPress={() => navigation.navigate('ForgotPassword')}>
           <Text style={{ color: LINK_BLUE, fontWeight: '600', fontSize: responsiveFontSize(11) }}>Olvidé mi contraseña</Text>
         </TouchableOpacity>
 

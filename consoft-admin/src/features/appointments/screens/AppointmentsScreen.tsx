@@ -15,7 +15,6 @@ export default function AppointmentsScreen() {
   const [tab, setTab] = useState<'Pendientes' | 'Confirmadas'>('Pendientes');
   const appointments = useAppStore((s: AppState) => s.appointments);
   const setStatus = useAppStore((s: AppState) => s.setAppointmentStatus);
-  const seed = useAppStore((s: AppState) => s.seedAppointments);
   const tabs: Array<'Pendientes' | 'Confirmadas'> = ['Pendientes', 'Confirmadas'];
   const pendingCount = useMemo(
     () => appointments.filter((a) => a.status === AppointmentStatus.Pending).length,

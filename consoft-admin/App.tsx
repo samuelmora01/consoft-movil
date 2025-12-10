@@ -8,12 +8,23 @@ import { useAppStore } from './src/store/appStore';
 import AppNavigator from './src/navigation/AppNavigator';
 import CustomerNavigator from './src/navigation/CustomerNavigator';
 import { ToastProvider } from './src/ui/ToastProvider';
+import { API } from './src/config';
+import { AuthApi } from './src/api/client';
+import { useAppStore } from './src/store/appStore';
+import { useToast } from './src/ui/ToastProvider';
+import { createSocket } from './src/realtime/socket';
+import { listAdminConversations, listDmConversations } from './src/features/chat/chatService';
 
 function NavigationRoot() {
   const { theme } = useTheme();
   const seedAppointments = useAppStore((s) => s.seedAppointments);
   const hasAppointments = useAppStore((s) => s.appointments.length > 0);
   const [useCustomer, setUseCustomer] = useState(false);
+  const [bootstrapped, setBootstrapped] = useState(false);
+  const signIn = useAppStore((s) => s.signIn);
+  const setProfile = useAppStore((s) => s.setProfile);
+  const { show } = useToast();
+  const incrementChatUnread = useAppStore((s) => s.incrementChatUnread);
 
   useEffect(() => {
     if (Platform.OS === 'web') {
@@ -26,6 +37,52 @@ function NavigationRoot() {
       try { seedAppointments(6); } catch {}
     }
   }, []);
+  useEffect(() => {
+    (async () => {
+      if (!API) {
+        setBootstrapped(true);
+        return;
+      }
+      try {
+        let me: any;
+        try {
+          me = await (await import('./src/api/client')).UsersApi(API).me();
+        } catch {
+          me = await AuthApi(API).me();
+        }
+        const u = (me && (me.user || me)) || {};
+        if (u && (u.email || u.name || u.fullName)) {
+          setProfile({
+            name: u.name || u.fullName || u.email,
+            email: u.email,
+            phone: u.phone,
+            address: u.address,
+            avatarUrl: u.avatarUrl || u.profile_picture || u.photoUrl,
+          });
+        }
+        signIn('me');
+        // Join all known conversations to receive new message events and reflect badge
+        try {
+          const s = createSocket(API);
+          const [orders, dms] = await Promise.all([listAdminConversations(), listDmConversations()]);
+          orders.forEach((c) => {
+            s.emit('order:join', { orderId: c.id });
+            s.emit('quotation:join', { quotationId: c.id });
+          });
+          dms.forEach((dm) => {
+            s.emit('chat:join', { roomId: dm.id, peer: 'admin@admin.com' });
+          });
+          s.on('chat:message', () => {
+            incrementChatUnread();
+          });
+        } catch {}
+      } catch {
+        // not signed in; ignore
+      } finally {
+        setBootstrapped(true);
+      }
+    })();
+  }, [signIn, setProfile, incrementChatUnread]);
   const navigationTheme = useMemo(() => {
     return theme.mode === 'dark'
       ? {
@@ -54,7 +111,7 @@ function NavigationRoot() {
 
   return (
     <NavigationContainer theme={navigationTheme}>
-      {useCustomer ? <CustomerNavigator /> : <AppNavigator />}
+      {bootstrapped ? (useCustomer ? <CustomerNavigator /> : <AppNavigator />) : null}
     </NavigationContainer>
   );
 }

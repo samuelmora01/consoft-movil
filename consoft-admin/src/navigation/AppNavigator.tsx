@@ -4,6 +4,7 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
 import LoginScreen from '../features/auth/screens/LoginScreen';
 import RegisterScreen from '../features/auth/screens/RegisterScreen';
+import ForgotPasswordScreen from '../features/auth/screens/ForgotPasswordScreen';
 import AppointmentsScreen from '../features/appointments/screens/AppointmentsScreen';
 import HomeScreen from '../features/appointments/screens/HomeScreen';
 import AppointmentDetailScreen from '../features/appointments/screens/AppointmentDetailScreen';
@@ -19,6 +20,8 @@ import EditStatusScreen from '../features/profile/screens/EditStatusScreen';
 import { useTheme } from '../theme/theme';
 import CustomerNavigator from './CustomerNavigator';
 import { useAppStore } from '../store/appStore';
+import ChatListScreen from '../features/chat/screens/ChatListScreen';
+import ChatRoomScreen from '../features/chat/screens/ChatRoomScreen';
 
 export type RootStackParamList = {
   Auth: undefined;
@@ -32,18 +35,21 @@ const Tab = createBottomTabNavigator();
 const AppointmentsStack = createNativeStackNavigator();
 const OrdersStack = createNativeStackNavigator();
 const ProfileStack = createNativeStackNavigator();
+const ChatStack = createNativeStackNavigator();
 
 function AuthNavigator() {
   return (
     <AuthStack.Navigator>
       <AuthStack.Screen name="Login" component={LoginScreen} options={{ headerShown: false }} />
       <AuthStack.Screen name="Register" component={RegisterScreen} options={{ title: 'Registro' }} />
+      <AuthStack.Screen name="ForgotPassword" component={ForgotPasswordScreen} options={{ title: 'Recuperar contraseña' }} />
     </AuthStack.Navigator>
   );
 }
 
 function MainTabs() {
   const { theme } = useTheme();
+  const chatUnread = require('../store/appStore').useAppStore((s: any) => s.chatUnreadCount);
   return (
     <Tab.Navigator
       screenOptions={({ route }) => ({
@@ -51,10 +57,12 @@ function MainTabs() {
         tabBarActiveTintColor: theme.colors.primary,
         tabBarInactiveTintColor: theme.colors.muted,
         tabBarStyle: { backgroundColor: theme.colors.card, borderTopColor: theme.colors.border },
+        tabBarBadge: route.name === 'Chat' && chatUnread > 0 ? chatUnread : undefined,
         tabBarIcon: ({ color, size }) => {
           let icon: keyof typeof Ionicons.glyphMap = 'home-outline';
           if (route.name === 'Inicio') icon = 'home-outline';
           if (route.name === 'Pedidos') icon = 'pricetags-outline';
+          if (route.name === 'Chat') icon = 'chatbubble-ellipses-outline';
           if (route.name === 'Perfil') icon = 'person-circle-outline';
           // Reseñas removido para MVP2
           return <Ionicons name={icon} size={size} color={color} />;
@@ -77,6 +85,14 @@ function MainTabs() {
             <OrdersStack.Screen name="OrderDetail" component={OrderDetailScreen} options={{ title: 'Pedido' }} />
             <OrdersStack.Screen name="OrderEdit" component={QuotationScreen} options={{ title: 'Editar pedido' }} />
           </OrdersStack.Navigator>
+        )}
+      </Tab.Screen>
+      <Tab.Screen name="Chat" options={{ headerShown: false }}>
+        {() => (
+          <ChatStack.Navigator>
+            <ChatStack.Screen name="ChatList" component={ChatListScreen} options={{ title: 'Chats' }} />
+            <ChatStack.Screen name="ChatRoom" component={ChatRoomScreen} options={({ route }) => ({ title: (route.params as any)?.title || 'Chat' })} />
+          </ChatStack.Navigator>
         )}
       </Tab.Screen>
       {/** Reseñas removido para MVP2 **/}

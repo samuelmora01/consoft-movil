@@ -6,6 +6,8 @@ import { scale, moderateScale, responsiveFontSize } from '../../../theme/respons
 import { useAppStore } from '../../../store/appStore';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { useToast } from '../../../ui/ToastProvider';
+import { API } from '../../../config';
+import { UsersApi } from '../../../api/client';
 
 export default function QuotationScreen() {
   const scrollRef = React.useRef<ScrollView | null>(null);
@@ -19,6 +21,13 @@ export default function QuotationScreen() {
   const [observation, setObservation] = React.useState('');
   const [clientName, setClientName] = React.useState('');
   const [clientEmail, setClientEmail] = React.useState('');
+  const [clientQuery, setClientQuery] = React.useState('');
+  const [clientOptions, setClientOptions] = React.useState<Array<{ id: string; name: string; email: string }>>([]);
+  const [showClientDropdown, setShowClientDropdown] = React.useState(false);
+  const [clientLoading, setClientLoading] = React.useState(false);
+  const clientDebounceRef = React.useRef<NodeJS.Timeout | null>(null);
+  const [selectedClientId, setSelectedClientId] = React.useState<string | null>(null);
+  const [orderAddress, setOrderAddress] = React.useState('');
   const [draftItems, setDraftItems] = React.useState<Array<{ id: string; name: string; price: number; observations?: string }>>([]);
   const [draftDeliveryISO, setDraftDeliveryISO] = React.useState<string | undefined>(undefined);
 
@@ -56,6 +65,38 @@ export default function QuotationScreen() {
   const total = (itemsToShow ?? []).reduce((sum, s) => sum + s.price, 0);
 
   // No image picking on creation screen
+  React.useEffect(() => {
+    if (clientDebounceRef.current) {
+      clearTimeout(clientDebounceRef.current);
+      clientDebounceRef.current = null;
+    }
+    const q = clientQuery.trim();
+    if (q.length < 2) {
+      setClientOptions([]);
+      return;
+    }
+    clientDebounceRef.current = setTimeout(async () => {
+      try {
+        if (!API) return;
+        setClientLoading(true);
+        const res = await UsersApi(API).search(q);
+        const list = (res as any).users || [];
+        const lowered = q.toLowerCase();
+        const mapped = list.map((u: any) => ({ id: u._id || u.id, name: u.name, email: u.email }));
+        const filtered = mapped.filter((u: any) => {
+          const nameOk = (u.name || '').toLowerCase().includes(lowered);
+          const emailOk = (u.email || '').toLowerCase().includes(lowered);
+          return nameOk || emailOk;
+        });
+        setClientOptions(filtered);
+        setShowClientDropdown(true);
+      } catch {
+        // ignore
+      } finally {
+        setClientLoading(false);
+      }
+    }, 250);
+  }, [clientQuery]);
 
   return (
     <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
@@ -67,9 +108,42 @@ export default function QuotationScreen() {
       > 
       <Text style={[styles.title, { color: theme.colors.text, fontSize: responsiveFontSize(18) }]}>Pedido</Text>
       <Text style={{ color: theme.colors.muted, marginBottom: 8, fontSize: responsiveFontSize(12) }}>*Nombre y Apellidos</Text>
-      <TextInput placeholder="Nombre del cliente" value={clientName} onChangeText={setClientName} placeholderTextColor={theme.colors.muted} style={[styles.input, { borderColor: theme.colors.border, color: theme.colors.text, padding: moderateScale(12), borderRadius: theme.radius }]} />
+      <View>
+        <TextInput
+          placeholder="Nombre del cliente (busca y selecciona)"
+          value={clientQuery}
+          onChangeText={(t) => { setClientQuery(t); setShowClientDropdown(true); }}
+          onFocus={() => setShowClientDropdown((clientOptions.length ?? 0) > 0)}
+          placeholderTextColor={theme.colors.muted}
+          style={[styles.input, { borderColor: theme.colors.border, color: theme.colors.text, padding: moderateScale(12), borderRadius: theme.radius }]}
+        />
+        {showClientDropdown && (clientOptions.length > 0 || clientLoading) ? (
+          <View style={{ borderWidth: 1, borderColor: theme.colors.border, borderRadius: theme.radius, marginTop: -8, backgroundColor: theme.colors.card }}>
+            {clientLoading ? (
+              <View style={{ padding: 12 }}><Text style={{ color: theme.colors.muted }}>Buscando...</Text></View>
+            ) : clientOptions.map((u) => (
+              <TouchableOpacity
+                key={u.id}
+                onPress={() => {
+                  setClientName(u.name);
+                  setClientEmail(u.email);
+                  setClientQuery(u.name);
+                  setSelectedClientId(u.id);
+                  setShowClientDropdown(false);
+                }}
+                style={{ paddingVertical: 10, paddingHorizontal: 12, borderBottomWidth: 1, borderBottomColor: theme.colors.border }}
+              >
+                <Text style={{ color: theme.colors.text, fontWeight: '700' }}>{u.name}</Text>
+                <Text style={{ color: theme.colors.muted, fontSize: responsiveFontSize(11) }}>{u.email}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        ) : null}
+      </View>
       <Text style={{ color: theme.colors.muted, marginBottom: 8, fontSize: responsiveFontSize(12) }}>Correo</Text>
       <TextInput placeholder="correo@correo" value={clientEmail} onChangeText={setClientEmail} keyboardType="email-address" placeholderTextColor={theme.colors.muted} style={[styles.input, { borderColor: theme.colors.border, color: theme.colors.text, padding: moderateScale(12), borderRadius: theme.radius }]} />
+      <Text style={{ color: theme.colors.muted, marginBottom: 8, marginTop: 6, fontSize: responsiveFontSize(12) }}>Dirección</Text>
+      <TextInput placeholder="Calle 123 #45-67, Ciudad" value={orderAddress} onChangeText={setOrderAddress} placeholderTextColor={theme.colors.muted} style={[styles.input, { borderColor: theme.colors.border, color: theme.colors.text, padding: moderateScale(12), borderRadius: theme.radius }]} />
 
       {/* Fecha de entrega se mostrará debajo de los servicios */}
 
@@ -104,20 +178,28 @@ export default function QuotationScreen() {
 
       <View style={styles.totalRow}>
         <Text style={{ color: theme.colors.text, fontWeight: '700', fontSize: responsiveFontSize(16) }}>Total: ${total.toLocaleString()}</Text>
-        <TouchableOpacity style={[styles.finishBtn, { backgroundColor: theme.colors.success, borderRadius: theme.radius, paddingVertical: moderateScale(12), paddingHorizontal: moderateScale(16) }]} onPress={() => {
+        <TouchableOpacity style={[styles.finishBtn, { backgroundColor: theme.colors.success, borderRadius: theme.radius, paddingVertical: moderateScale(12), paddingHorizontal: moderateScale(16) }]} onPress={async () => {
           let targetId = doc?.id;
-          if (!targetId) {
-            const created = createDocument('client-1');
-            targetId = created.id;
-            draftItems.forEach((it) => addItemToDocument(targetId!, { name: it.name, price: it.price, observations: it.observations }));
-            if (draftDeliveryISO) {
-              setDeliveryDate(targetId!, draftDeliveryISO);
+          try {
+            if (!selectedClientId) {
+              toast.show('Selecciona un cliente válido', 'error');
+              return;
             }
+            const itemsArr = (itemsToShow ?? []).map((it: any) => ({
+              ...(it.serviceId ? { id_servicio: it.serviceId } : {}),
+              detalles: it.observations || it.name,
+              valor: it.price,
+            }));
+            const payload = { user: selectedClientId, status: 'en_proceso', address: orderAddress || undefined, items: itemsArr, payments: [] };
+            const { OrdersApi } = await import('../../../api/client');
+            const { API } = await import('../../../config');
+            if (!API) throw new Error('Configura API');
+            await OrdersApi(API).createForUser(payload);
+            toast.show('Pedido creado', 'success');
+            navigation.goBack();
+          } catch (e) {
+            toast.show((e as Error)?.message || 'No se pudo crear el pedido', 'error');
           }
-          useAppStore.setState((s) => ({ documents: s.documents.map((d) => d.id === targetId ? { ...d, clientName, clientEmail } : d) }));
-          finalizeQuotation(targetId!);
-          toast.show('Pedido finalizado', 'success');
-          navigation.goBack();
         }}>
           <Text style={{ color: '#fff', fontWeight: '700' }}>Finalizar</Text>
         </TouchableOpacity>
