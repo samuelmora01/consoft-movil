@@ -11,10 +11,15 @@ import {
 export interface AppState {
   // Auth
   isSignedIn: boolean;
-  signIn: (email: string) => void;
+  signIn: (email?: string) => void;
   signOut: () => void;
   profile: { name: string; email: string; phone?: string; address?: string; avatarUrl?: string } | null;
   updateProfile: (payload: Partial<{ name: string; email: string; phone?: string; address?: string; avatarUrl?: string }>) => void;
+  setProfile: (payload: { name: string; email: string; phone?: string; address?: string; avatarUrl?: string } | null) => void;
+  // Chat
+  chatUnreadCount: number;
+  incrementChatUnread: () => void;
+  clearChatUnread: () => void;
   suspendAccount: () => void;
   closeAccount: () => void;
   appointments: Appointment[];
@@ -30,20 +35,22 @@ export interface AppState {
   updateOrderState: (documentId: UUID, state: import('../domain/types').OrderState) => void;
   addOrderImage: (documentId: UUID, imageUrl: string) => void;
   setDeliveryDate: (documentId: UUID, iso: string) => void;
-  seedAppointments: (count?: number) => void;
   // Reviews
   reviews: import('../domain/types').Review[];
   addReview: (payload: { clientName: string; rating: number; comment: string; avatarUrl?: string }) => void;
-  seedReviews: () => void;
   removeReview: (id: UUID) => void;
 }
 
 export const useAppStore = create<AppState>((set) => ({
   isSignedIn: false,
   signIn: () => set({ isSignedIn: true }),
-  signOut: () => set({ isSignedIn: false }),
+  signOut: () => set({ isSignedIn: false, profile: null }),
   profile: { name: 'Samuel Mora', email: 'correo@correo.com', phone: '', address: '', avatarUrl: 'https://i.pravatar.cc/120?img=5' },
   updateProfile: (payload) => set((state) => ({ profile: { ...state.profile!, ...payload } })),
+  setProfile: (payload) => set(() => ({ profile: payload })),
+  chatUnreadCount: 0,
+  incrementChatUnread: () => set((s) => ({ chatUnreadCount: (s.chatUnreadCount ?? 0) + 1 })),
+  clearChatUnread: () => set(() => ({ chatUnreadCount: 0 })),
   suspendAccount: () => set((state) => ({ isSignedIn: false, profile: state.profile ? { ...state.profile, status: 'SUSPENDED' as any } : null })),
   closeAccount: () => set(() => ({ isSignedIn: false, profile: null })),
   appointments: [],
@@ -164,22 +171,6 @@ export const useAppStore = create<AppState>((set) => ({
           : doc,
       ),
     })),
-  seedAppointments: (count = 6) =>
-    set(() => {
-      const now = Date.now();
-      const appts: Appointment[] = Array.from({ length: count }).map((_, i) => ({
-        id: generateId(),
-        clientId: generateId(),
-        title: `Visita técnica ${i + 1}`,
-        datetime: new Date(now + i * 60 * 60 * 1000).toISOString(),
-        status: i % 2 === 0 ? AppointmentStatus.Pending : AppointmentStatus.Confirmed,
-        needsApproval: false,
-        createdAt: new Date(now - i * 60 * 1000).toISOString(),
-        updatedAt: new Date(now - i * 60 * 1000).toISOString(),
-        location: { type: 'Point', coordinates: [-74.0817 + i * 0.001, 4.6097 + i * 0.001] },
-      }));
-      return { appointments: appts };
-    }),
   // Reviews state
   reviews: [],
   addReview: ({ clientName, rating, comment, avatarUrl }) =>
@@ -244,14 +235,6 @@ export const useAppStore = create<AppState>((set) => ({
       ];
       return { documents: docs };
     }),
-  seedReviews: () =>
-    set(() => ({
-      reviews: [
-        { id: generateId(), clientName: 'Laura G. Medellín', rating: 5, comment: 'Llegaron puntuales y el trabajo quedó excelente.', avatarUrl: undefined, createdAt: new Date().toISOString() },
-        { id: generateId(), clientName: 'Carlos R. Bogotá', rating: 5, comment: 'Restauración impecable, precio justo. Recomendados.', avatarUrl: undefined, createdAt: new Date().toISOString() },
-        { id: generateId(), clientName: 'Ana M. Cali', rating: 4, comment: 'Fabricación personalizada superó expectativas.', avatarUrl: undefined, createdAt: new Date().toISOString() },
-      ],
-    })),
   removeReview: (id) =>
     set((state) => ({ reviews: state.reviews.filter((r) => r.id !== id) })),
 }));

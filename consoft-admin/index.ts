@@ -9,20 +9,4 @@ import { useAppStore } from './src/store/appStore';
 // the environment is set up appropriately
 registerRootComponent(App);
 
-// Dev helpers in Expo console
-// Access in console as: global.seedAppointments()
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-(global as any).seedAppointments = () => {
-  const seed = useAppStore.getState().seedAppointments;
-  seed(8);
-  // return current state for quick inspection
-  return useAppStore.getState().appointments;
-};
-
-// Auto-seed in development on first load if empty
-if (__DEV__) {
-  const state = useAppStore.getState();
-  if ((state.appointments?.length ?? 0) === 0) {
-    state.seedAppointments(8);
-  }
-}
+// Nota: Datos semilla de visitas eliminados. Cargar desde backend.

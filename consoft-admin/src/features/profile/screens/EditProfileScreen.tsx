@@ -1,9 +1,12 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TextInput, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, TextInput, TouchableOpacity, Alert } from 'react-native';
 import { useTheme } from '../../../theme/theme';
 import { useAppStore } from '../../../store/appStore';
 import * as ImagePicker from 'expo-image-picker';
+import * as FileSystem from 'expo-file-system';
 import { Image } from 'expo-image';
+import { UsersApi } from '../../../api/client';
+import { API } from '../../../config';
 
 export default function EditProfileScreen() {
   const { theme } = useTheme();
@@ -18,12 +21,50 @@ export default function EditProfileScreen() {
   async function selectPhoto() {
     const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.7 });
     if (!res.canceled && res.assets?.length) {
-      setAvatarUrl(res.assets[0].uri);
+      const asset = res.assets[0];
+      let localUri = asset.uri;
+      const fallbackExt = (asset.fileName && asset.fileName.split('.').pop()) || 'jpg';
+      if (!localUri.startsWith('file://')) {
+        try {
+          const dest = `${FileSystem.cacheDirectory}profile-${Date.now()}.${fallbackExt}`;
+          await FileSystem.copyAsync({ from: localUri, to: dest });
+          localUri = dest;
+        } catch {
+          // keep original uri if copy fails
+        }
+      }
+      setAvatarUrl(localUri);
     }
   }
 
-  function save() {
-    updateProfile({ name, email, phone, address, avatarUrl });
+  async function save() {
+    try {
+      if (!API) throw new Error('Configura API');
+      // Solo enviar campos modificados
+      const changed: Partial<{ name: string; email: string; phone: string; address: string }> = {};
+      if (name !== (profile.name || '')) changed.name = name;
+      if (email !== (profile.email || '')) changed.email = email;
+      if (phone !== (profile.phone || '')) changed.phone = phone;
+      if (address !== (profile.address || '')) changed.address = address;
+      const profilePictureUri = avatarUrl && !/^https?:\/\//i.test(avatarUrl) ? avatarUrl : undefined;
+      await UsersApi(API).updateMeMultipart({ ...changed, profilePictureUri });
+      // Re-hidratar desde backend para asegurar URL final
+      try {
+        const fresh = await UsersApi(API).me();
+        const u: any = (fresh as any)?.user || fresh;
+        updateProfile({
+          name: u?.name || u?.fullName || u?.email,
+          email: u?.email,
+          phone: u?.phone,
+          address: u?.address,
+          avatarUrl: u?.avatarUrl || u?.profile_picture || u?.photoUrl,
+        });
+        if (u?.avatarUrl || u?.profile_picture || u?.photoUrl) setAvatarUrl(u?.avatarUrl || u?.profile_picture || u?.photoUrl);
+      } catch {}
+      Alert.alert('Éxito', 'Tu información fue guardada correctamente.');
+    } catch (e) {
+      Alert.alert('Error', (e as Error)?.message || 'No se pudo guardar la información');
+    }
   }
 
   return (

@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { View, Text, StyleSheet, TextInput, TouchableOpacity, Alert } from 'react-native';
 import { useTheme } from '../../../theme/theme';
 import { Ionicons } from '@expo/vector-icons';
+import { AuthApi } from '../../../api/client';
+import { API } from '../../../config';
 
 export default function ChangePasswordScreen() {
   const { theme } = useTheme();
@@ -9,12 +11,25 @@ export default function ChangePasswordScreen() {
   const [newPwd, setNewPwd] = useState('');
   const [confirmPwd, setConfirmPwd] = useState('');
   const [show, setShow] = useState({ cur: false, n: false, c: false });
+  const [saving, setSaving] = useState(false);
 
   const canSave = newPwd.length >= 6 && newPwd === confirmPwd && currentPwd.length > 0;
 
-  function save() {
-    if (!canSave) return;
-    Alert.alert('Contraseña actualizada', 'Tu contraseña fue actualizada correctamente.');
+  async function save() {
+    if (!canSave || saving) return;
+    try {
+      setSaving(true);
+      if (!API) throw new Error('Configura API');
+      await AuthApi(API).changePassword(currentPwd, newPwd);
+      Alert.alert('Contraseña actualizada', 'Tu contraseña fue actualizada correctamente.');
+      setCurrentPwd('');
+      setNewPwd('');
+      setConfirmPwd('');
+    } catch (e) {
+      Alert.alert('Error', (e as Error)?.message || 'No se pudo actualizar la contraseña');
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -63,7 +78,7 @@ export default function ChangePasswordScreen() {
         </TouchableOpacity>
       </View>
 
-      <TouchableOpacity disabled={!canSave} onPress={save} style={[styles.saveBtn, { backgroundColor: canSave ? theme.colors.primary : theme.colors.muted }]}> 
+      <TouchableOpacity disabled={!canSave || saving} onPress={save} style={[styles.saveBtn, { backgroundColor: canSave ? theme.colors.primary : theme.colors.muted, opacity: saving ? 0.7 : 1 }]}> 
         <Text style={{ color: '#fff', fontWeight: '700' }}>Guardar Información</Text>
       </TouchableOpacity>
     </View>

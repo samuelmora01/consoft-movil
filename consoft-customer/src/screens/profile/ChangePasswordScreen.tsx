@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { API } from '../../config';
+import { AuthApi } from '../../api/client';
 
 export default function ChangePasswordScreen() {
   const [current, setCurrent] = useState('');
@@ -10,6 +12,19 @@ export default function ChangePasswordScreen() {
   const [showNext, setShowNext] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const valid = next.length >= 6 && next === confirm && current.length > 0;
+  async function onSave() {
+    if (!valid) return;
+    try {
+      if (!API) throw new Error('Configura API');
+      await AuthApi(API).changePassword(current, next);
+      setCurrent('');
+      setNext('');
+      setConfirm('');
+      // opcionalmente mostrar feedback
+    } catch (e) {
+      // opcionalmente mostrar feedback
+    }
+  }
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Actualizar contraseña</Text>
@@ -34,7 +49,7 @@ export default function ChangePasswordScreen() {
           <Ionicons name={showConfirm ? 'eye-off-outline' : 'eye-outline'} size={18} color="#0f172a" />
         </TouchableOpacity>
       </View>
-      <TouchableOpacity style={[styles.button, { opacity: valid ? 1 : 0.5 }]} disabled={!valid}>
+      <TouchableOpacity style={[styles.button, { opacity: valid ? 1 : 0.5 }]} disabled={!valid} onPress={onSave}>
         <Text style={styles.buttonText}>Guardar Información</Text>
       </TouchableOpacity>
     </View>

@@ -3,12 +3,38 @@ import { View, Text, StyleSheet, Switch, TouchableOpacity } from 'react-native';
 import { useTheme } from '../../../theme/theme';
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
+import { useAppStore } from '../../../store/appStore';
+import { AuthApi } from '../../../api/client';
+import { API } from '../../../config';
 
 export default function ProfileScreen() {
   const { theme, toggleMode } = useTheme();
   const navigation = useNavigation<any>();
   const isDark = theme.mode === 'dark';
+  const profile = useAppStore((s) => s.profile);
+  const signOut = useAppStore((s) => s.signOut);
+  const setProfile = useAppStore((s) => s.setProfile);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      (async () => {
+        try {
+          if (!API) return;
+          const fresh = await (await import('../../../api/client')).UsersApi(API).me();
+          const u: any = (fresh as any)?.user || fresh;
+          setProfile({
+            name: u?.name || u?.fullName || u?.email,
+            email: u?.email,
+            phone: u?.phone,
+            address: u?.address,
+            avatarUrl: u?.avatarUrl || u?.profile_picture || u?.photoUrl,
+          });
+        } catch {}
+      })();
+      return () => {};
+    }, [setProfile])
+  );
   
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}> 
@@ -16,14 +42,14 @@ export default function ProfileScreen() {
       <View style={[styles.headerRow]}>
         <View style={[styles.avatarRing, { borderColor: theme.colors.border }]}> 
           <Image
-            source={{ uri: 'https://i.pravatar.cc/120?img=5' }}
+            source={{ uri: (profile?.avatarUrl as string) || (profile as any)?.profile_picture || (profile as any)?.photoUrl || 'https://i.pravatar.cc/120?img=5' }}
             style={styles.avatar}
             contentFit="cover"
           />
         </View>
         <View>
-          <Text style={[styles.name, { color: theme.colors.text }]}>Samuel Mora</Text>
-          <Text style={{ color: theme.colors.muted }}>correo@correo.com</Text>
+          <Text style={[styles.name, { color: theme.colors.text }]}>{profile?.name || '-'}</Text>
+          <Text style={{ color: theme.colors.muted }}>{profile?.email || '-'}</Text>
         </View>
       </View>
 
@@ -59,7 +85,13 @@ export default function ProfileScreen() {
         </TouchableOpacity>
       </View>
 
-      <TouchableOpacity style={[styles.logoutRow]} onPress={() => {/* Simple logout to login */ (require('../../../store/appStore') as any).useAppStore.getState().signOut(); }}>
+      <TouchableOpacity
+        style={[styles.logoutRow]}
+        onPress={async () => {
+          try { if (API) await AuthApi(API).logout(); } catch {}
+          signOut();
+        }}
+      >
         <View style={[styles.iconWrap, { backgroundColor: '#FDECEC' }]}>
           <Ionicons name="log-out" size={18} color={theme.colors.danger} />
         </View>

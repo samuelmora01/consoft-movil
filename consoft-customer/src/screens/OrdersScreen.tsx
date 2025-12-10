@@ -1,52 +1,100 @@
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, Image, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { OrdersApi } from '../api/client';
+import { API } from '../config';
 
 type OrderCard = {
   id: string;
-  number: string;
-  name: string;
-  status: 'Pendiente' | 'Completado' | 'Cancelado';
-  price: string;
-  date: string;
-  products: number;
-  image: string;
+  number?: string;
+  name?: string;
+  status?: string;
+  price?: string;
+  date?: string;
+  products?: number;
+  image?: string;
 };
 
-const SAMPLE_ORDERS: OrderCard[] = [
-  { id: '1', number: '001', name: 'Tapicería Personalizada', status: 'Completado', price: '$94.000 COP', date: '4 julio, 2024', products: 3, image: 'https://images.unsplash.com/photo-1519710164239-da123dc03ef4?q=80&w=1200&auto=format&fit=crop' },
-  { id: '2', number: '002', name: 'Restauración de sillón', status: 'Completado', price: '$160.000 COP', date: '8 julio, 2024', products: 2, image: 'https://images.unsplash.com/photo-1520880867055-1e30d1cb001c?q=80&w=1200&auto=format&fit=crop' },
-  { id: '3', number: '003', name: 'Fabricación a medida', status: 'Pendiente', price: '$240.000 COP', date: '12 julio, 2024', products: 4, image: 'https://images.unsplash.com/photo-1538688423619-a81d3f23454b?q=80&w=1200&auto=format&fit=crop' },
-];
-
 export default function OrdersScreen({ navigation }: any) {
-  const orders = useMemo(() => SAMPLE_ORDERS, []);
+  const [orders, setOrders] = useState<OrderCard[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
   const insets = useSafeAreaInsets();
   const androidTopPad = Platform.OS === 'android' ? Math.max(insets.top, 12) : 0;
+
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        if (!API) throw new Error('Configura API');
+        setLoading(true);
+        const res = await OrdersApi(API).mine();
+        const list = (res as any)?.orders || (Array.isArray(res) ? res : []);
+        const mapped: OrderCard[] = list.map((q: any, idx: number) => ({
+          id: q._id || q.id || String(idx),
+          number: q.code || q._id?.slice(-6),
+          name: q.items && q.items[0]?.id_servicio?.name || 'Pedido',
+          status: q.status || 'en_proceso',
+          price: typeof q.total === 'number' ? `$${q.total.toLocaleString()}` : undefined,
+          date: q.deliveryDate ? new Date(q.deliveryDate).toLocaleDateString() : undefined,
+          products: Array.isArray(q.items) ? q.items.length : undefined,
+          image: undefined,
+        }));
+        if (mounted) {
+          setOrders(mapped);
+          setError(null);
+        }
+      } catch (e) {
+        if (mounted) setError((e as Error)?.message || 'No se pudo cargar pedidos');
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    })();
+    return () => { mounted = false; };
+  }, []);
 
   const renderItem = ({ item }: { item: OrderCard }) => {
     return (
       <TouchableOpacity style={styles.card} onPress={() => navigation.navigate('OrderDetail', { order: item })}>
         <View style={styles.cardTopRow}>
-          <Image source={{ uri: item.image }} style={styles.thumb} />
+          {item.image ? <Image source={{ uri: item.image }} style={styles.thumb} /> : <View style={[styles.thumb, { backgroundColor: '#eee' }]} />}
           <View style={{ flex: 1, marginLeft: 12 }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Text style={styles.cardTitle}>Pedido #{item.number}</Text>
+              <Text style={styles.cardTitle}>Pedido {item.number ? `#${item.number}` : ''}</Text>
               <View style={styles.badgeRight}>
                 <Ionicons name="cube-outline" size={16} color="#6b4028" />
               </View>
             </View>
-            <Text numberOfLines={1} style={styles.subtitleSmall}>{item.name}  →</Text>
-            <Text style={styles.priceLarge}>{item.price}</Text>
+            <Text numberOfLines={1} style={styles.subtitleSmall}>{item.name || 'Pedido'}  →</Text>
+            {item.price ? <Text style={styles.priceLarge}>{item.price}</Text> : null}
           </View>
         </View>
         <View style={styles.dateBar}>
-          <Text numberOfLines={1} style={styles.dateBarText}>Fecha de entrega : {item.date}</Text>
+          <Text numberOfLines={1} style={styles.dateBarText}>Fecha de entrega : {item.date || '—'}</Text>
         </View>
       </TouchableOpacity>
     );
   };
+
+  if (loading) {
+    return (
+      <View style={[styles.container, { paddingTop: androidTopPad, alignItems: 'center', justifyContent: 'center' }] }>
+        <Ionicons name="time-outline" size={64} color="#6b7280" />
+        <Text style={styles.emptySubtitle}>Cargando tus pedidos…</Text>
+      </View>
+    );
+  }
+
+  if (error) {
+    return (
+      <View style={[styles.container, { paddingTop: androidTopPad, alignItems: 'center', justifyContent: 'center' }] }>
+        <Ionicons name="alert-circle-outline" size={64} color="#ef4444" />
+        <Text style={styles.emptyTitle}>Error</Text>
+        <Text style={styles.emptySubtitle}>{error}</Text>
+      </View>
+    );
+  }
 
   if (orders.length === 0) {
     return (

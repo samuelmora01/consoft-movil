@@ -12,12 +12,12 @@ export default function LoginScreen() {
     <View style={[styles.container, { backgroundColor: theme.colors.background }] }>
       <Text style={[styles.title, { color: theme.colors.text }]}>Confort & Estilo</Text>
       <Text style={{ color: theme.colors.muted, textAlign: 'center', marginBottom: 18 }}>Ingresa con tu correo para continuar</Text>
-      <TextInput placeholder="Correo electrónico" placeholderTextColor={theme.colors.muted} style={[styles.input, { borderColor: theme.colors.border, color: theme.colors.text }]} />
+      <TextInput placeholder="Correo electrónico" placeholderTextColor={theme.colors.muted} autoCapitalize="none" keyboardType="email-address" style={[styles.input, { borderColor: theme.colors.border, color: theme.colors.text }]} />
       <TextInput placeholder="Ingresar tu contraseña" secureTextEntry placeholderTextColor={theme.colors.muted} style={[styles.input, { borderColor: theme.colors.border, color: theme.colors.text }]} />
       <TouchableOpacity style={{ marginTop: 8, alignSelf: 'flex-end' }}>
         <Text style={{ color: theme.colors.primary, fontWeight: '700' }}>¿Olvidaste tu contraseña?</Text>
       </TouchableOpacity>
-      <TouchableOpacity style={[styles.primaryBtn, { backgroundColor: theme.colors.primary }]} onPress={() => signIn('demo@example.com')}> 
+      <TouchableOpacity style={[styles.primaryBtn, { backgroundColor: theme.colors.primary }]} onPress={() => signIn()}> 
         <Text style={styles.primaryText}>Iniciar sesión</Text>
       </TouchableOpacity>
       
