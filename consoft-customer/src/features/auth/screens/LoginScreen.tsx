@@ -1,101 +1,272 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, Dimensions } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, ImageBackground, Dimensions, KeyboardAvoidingView, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+// import { LinearGradient } from 'expo-linear-gradient';
+// import { BlurView } from 'expo-blur';
 import { useTheme } from '../../../theme/theme';
-import { responsiveFontSize, moderateScale, verticalScale } from '../../../theme/responsive';
+import { responsiveFontSize, moderateScale } from '../../../theme/responsive';
 import { AuthApi } from '../../../api/client';
 import { API } from '../../../config';
 import { useToast } from '../../../ui/ToastProvider';
+import { useUserStore } from '../../../store/userStore';
 
-const BROWN = '#6b4028';
-const INPUT_BG = '#EEF0F5';
-const LINK_BLUE = '#2563eb';
-const SECONDARY_BG = '#F4EFFF';
+const { width, height } = Dimensions.get('window');
 
 export default function LoginScreen({ navigation }: any) {
   const { theme } = useTheme();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [errors, setErrors] = useState<{ email?: string; password?: string }>({});
+  const [loading, setLoading] = useState(false);
   const { show } = useToast();
+  const setContact = useUserStore((s) => s.setContact);
 
   const onLogin = async () => {
+    if (loading) return;
+    setLoading(true);
     try {
       if (!API) throw new Error('Configura la URL del backend (API) en app.json');
       await AuthApi(API).login(email, password);
-      await AuthApi(API).me();
+      const me: any = await AuthApi(API).me();
+      const u = (me?.user || me) as any;
+      if (u?.email) {
+        setContact({
+          backupEmail: u.email,
+          backupPhone: '',
+          defaultAddress: u.address || '',
+        });
+      }
       navigation.replace('Main');
     } catch (e) {
       const msg = (e as Error)?.message || 'Error al iniciar sesión';
       show(msg, 'error');
+    } finally {
+      setLoading(false);
     }
   };
 
   return (
-    <ScrollView contentContainerStyle={[styles.container, { backgroundColor: theme.colors.background, minHeight: Dimensions.get('window').height }]} keyboardShouldPersistTaps="handled">
-      <View style={{ alignItems: 'center', marginTop: verticalScale(160), marginBottom: verticalScale(20) }}>
-        <Text style={{ fontSize: responsiveFontSize(28), fontWeight: '800', color: theme.colors.text, textAlign: 'center' }}>Confort & Estilo</Text>
+    <ImageBackground
+      source={{ uri: 'https://images.unsplash.com/photo-1555041469-a586c61ea9bc?w=1200&q=80' }}
+      style={styles.background}
+      resizeMode="cover"
+    >
+      <View style={styles.gradient}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={styles.keyboardView}
+        >
+          {/* Panel de Login Centrado */}
+          <View style={styles.centerContainer}>
+            {/* Título cerca del panel */}
+            <View style={styles.titleNearPanel}>
+              <Text style={styles.brandTitle}>Confort & Estilo</Text>
+            </View>
+            <View style={styles.loginPanel}>
+              <View style={styles.loginContent}>
+                <Text style={styles.loginTitle}>INICIA SESIÓN</Text>
+
+                <View style={styles.inputGroup}>
+                  <Text style={styles.label}>CORREO ELECTRÓNICO</Text>
+                  <View style={styles.inputWrapper}>
+                    <TextInput
+                      value={email}
+                      onChangeText={setEmail}
+                      placeholder="demo@consoft.com"
+                      keyboardType="email-address"
+                      autoCapitalize="none"
+                      placeholderTextColor="rgba(255,255,255,0.4)"
+                      style={styles.input}
+                    />
+                  </View>
+                </View>
+
+                <View style={styles.inputGroup}>
+                  <Text style={styles.label}>CONTRASEÑA</Text>
+                  <View style={styles.inputWrapper}>
+                    <TextInput
+                      value={password}
+                      onChangeText={setPassword}
+                      placeholder="••••••••"
+                      secureTextEntry={!showPassword}
+                      autoCapitalize="none"
+                      placeholderTextColor="rgba(255,255,255,0.4)"
+                      style={[styles.input, { flex: 1 }]}
+                    />
+                    <TouchableOpacity onPress={() => setShowPassword((v) => !v)} style={styles.eyeIcon}>
+                      <Ionicons name={showPassword ? 'eye-off-outline' : 'eye-outline'} size={20} color="rgba(255,255,255,0.6)" />
+                    </TouchableOpacity>
+                  </View>
+                </View>
+
+                <TouchableOpacity style={styles.forgotLink} onPress={() => navigation.navigate('ForgotPassword')}>
+                  <Text style={styles.forgotText}>¿Olvidaste tu contraseña?</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity 
+                  style={[styles.continueBtn, loading && styles.continueBtnDisabled]} 
+                  onPress={onLogin}
+                  disabled={loading}
+                >
+                  <Text style={styles.continueText}>{loading ? 'Cargando...' : 'Continuar'}</Text>
+                </TouchableOpacity>
+
+                <View style={styles.divider}>
+                  <View style={styles.dividerLine} />
+                  <Text style={styles.dividerText}>O ESCRÍBENOS</Text>
+                  <View style={styles.dividerLine} />
+                </View>
+
+                <View style={styles.footer}>
+                  <Text style={styles.footerText}>¿No tienes cuenta? </Text>
+                  <TouchableOpacity onPress={() => navigation.navigate('Register')}>
+                    <Text style={styles.registerLink}>Regístrate</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
       </View>
-
-      <View style={{ marginTop: 6 }}>
-        <Text style={{ fontWeight: '700', color: theme.colors.text, marginBottom: 8, fontSize: responsiveFontSize(12) }}>Correo Electrónico</Text>
-        <View style={[styles.inputPill, { backgroundColor: INPUT_BG }, errors.email && { borderColor: '#ef4444' }]}> 
-          <TextInput
-            value={email}
-            onChangeText={setEmail}
-            placeholder="correo@gmail.com"
-            keyboardType="email-address"
-            autoCapitalize="none"
-            placeholderTextColor={theme.colors.muted}
-            style={styles.inputFlat}
-          />
-        </View>
-        {errors.email ? <Text style={{ color: '#ef4444', marginTop: 6 }}>{errors.email}</Text> : null}
-
-        <Text style={{ fontWeight: '700', color: theme.colors.text, marginBottom: 8, marginTop: 18, fontSize: responsiveFontSize(12) }}>Ingresa tu contraseña</Text>
-        <View style={[styles.inputPill, { backgroundColor: INPUT_BG }, errors.password && { borderColor: '#ef4444' }]}> 
-          <TextInput
-            value={password}
-            onChangeText={setPassword}
-            placeholder="ingresa tu contraseña"
-            secureTextEntry={!showPassword}
-            autoCapitalize="none"
-            placeholderTextColor={theme.colors.muted}
-            style={styles.inputFlat}
-          />
-          <TouchableOpacity onPress={() => setShowPassword((v) => !v)}>
-            <Ionicons name={showPassword ? 'eye-off-outline' : 'eye-outline'} size={18} color={theme.colors.muted} />
-          </TouchableOpacity>
-        </View>
-        {errors.password ? <Text style={{ color: '#ef4444', marginTop: 6 }}>{errors.password}</Text> : null}
-
-        <TouchableOpacity style={{ alignSelf: 'flex-end', marginTop: 6 }} onPress={() => navigation.navigate('ForgotPassword')}>
-          <Text style={{ color: LINK_BLUE, fontWeight: '600', fontSize: responsiveFontSize(11) }}>Olvidé mi contraseña</Text>
-        </TouchableOpacity>
-
-        <View style={{ marginTop: 18, alignItems: 'center', gap: 12 }}>
-          <TouchableOpacity style={styles.primaryBtn} onPress={onLogin}>
-            <Text style={styles.primaryText}>Iniciar sesión</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity style={styles.secondaryBtn} onPress={() => navigation.navigate('Register')}>
-            <Text style={styles.secondaryText}>Crear cuenta</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-    </ScrollView>
+    </ImageBackground>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { paddingHorizontal: 24, paddingBottom: 24, flexGrow: 1, justifyContent: 'flex-start' },
-  inputPill: { flexDirection: 'row', alignItems: 'center', borderRadius: 14, paddingHorizontal: 14, height: 48, borderWidth: 1, borderColor: '#E5E7EB' },
-  inputFlat: { flex: 1, color: '#111827' },
-  primaryBtn: { alignSelf: 'center', width: '86%', backgroundColor: BROWN, paddingVertical: moderateScale(12), borderRadius: 16, alignItems: 'center' },
-  primaryText: { color: '#fff', fontWeight: '700' },
-  secondaryBtn: { alignSelf: 'center', width: '86%', paddingVertical: moderateScale(12), borderRadius: 16, alignItems: 'center', borderWidth: 1, borderColor: BROWN, backgroundColor: SECONDARY_BG },
-  secondaryText: { color: '#4B5563', fontWeight: '700' },
+  background: {
+    flex: 1,
+    width: '100%',
+    height: '100%',
+  },
+  gradient: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+  },
+  keyboardView: {
+    flex: 1,
+    justifyContent: 'center',
+  },
+  centerContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+  },
+  titleNearPanel: {
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  brandTitle: {
+    fontSize: responsiveFontSize(22),
+    fontWeight: '700',
+    color: '#d4a574',
+    textAlign: 'center',
+    letterSpacing: 1,
+  },
+  loginPanel: {
+    width: '100%',
+    maxWidth: 440,
+    borderRadius: 16,
+    overflow: 'hidden',
+    backgroundColor: 'rgba(26, 26, 26, 0.78)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+  },
+  loginContent: {
+    padding: 24,
+  },
+  loginTitle: {
+    fontSize: responsiveFontSize(14),
+    fontWeight: '700',
+    color: '#fff',
+    marginBottom: 16,
+    letterSpacing: 1,
+  },
+  inputGroup: {
+    marginBottom: 16,
+  },
+  label: {
+    fontSize: responsiveFontSize(10),
+    fontWeight: '600',
+    color: 'rgba(255,255,255,0.7)',
+    marginBottom: 6,
+    letterSpacing: 0.5,
+  },
+  inputWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
+    paddingHorizontal: 14,
+    height: 44,
+  },
+  input: {
+    flex: 1,
+    color: '#fff',
+    fontSize: responsiveFontSize(14),
+  },
+  eyeIcon: {
+    padding: 4,
+  },
+  forgotLink: {
+    alignSelf: 'flex-end',
+    marginTop: 6,
+    marginBottom: 18,
+  },
+  forgotText: {
+    color: 'rgba(255,255,255,0.6)',
+    fontSize: responsiveFontSize(12),
+    fontWeight: '600',
+  },
+  continueBtn: {
+    backgroundColor: '#d4a574',
+    paddingVertical: moderateScale(14),
+    borderRadius: 8,
+    alignItems: 'center',
+    marginBottom: 18,
+  },
+  continueBtnDisabled: {
+    opacity: 0.6,
+  },
+  continueText: {
+    color: '#1a1a1a',
+    fontSize: responsiveFontSize(14),
+    fontWeight: '700',
+    letterSpacing: 0.5,
+  },
+  divider: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 18,
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+  },
+  dividerText: {
+    color: 'rgba(255,255,255,0.5)',
+    fontSize: responsiveFontSize(10),
+    fontWeight: '600',
+    marginHorizontal: 12,
+    letterSpacing: 0.5,
+  },
+  footer: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  footerText: {
+    color: 'rgba(255,255,255,0.6)',
+    fontSize: responsiveFontSize(13),
+  },
+  registerLink: {
+    color: '#d4a574',
+    fontSize: responsiveFontSize(13),
+    fontWeight: '700',
+  },
 });
 
 

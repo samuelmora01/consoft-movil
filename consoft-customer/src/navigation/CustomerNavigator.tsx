@@ -3,6 +3,7 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { TouchableOpacity } from 'react-native';
+import { useTheme } from '../theme/theme';
 import SearchScreen from '../screens/SearchScreen';
 import SavedScreen from '../screens/SavedScreen';
 import OrdersScreen from '../screens/OrdersScreen';
@@ -14,6 +15,8 @@ import EditStatusScreen from '../screens/profile/EditStatusScreen';
 import ProductDetailScreen from '../screens/ProductDetailScreen';
 import ScheduleAppointmentScreen from '../screens/ScheduleAppointmentScreen';
 import ServiceDetailScreen from '../screens/ServiceDetailScreen';
+import ServiceReviewScreen from '../screens/ServiceReviewScreen';
+import CustomProductScreen from '../screens/CustomProductScreen';
 import ContactInfoScreen from '../screens/ContactInfoScreen';
 import CartScreen from '../screens/CartScreen';
 import CustomerChatRoot from '../features/chat/screens/CustomerChatRoot';
@@ -23,16 +26,21 @@ const Tab = createBottomTabNavigator();
 const SearchStack = createNativeStackNavigator();
 const ProfileStack = createNativeStackNavigator();
 const SavedStack = createNativeStackNavigator();
+const OrdersStack = createNativeStackNavigator();
 
 function SearchStackNavigator() {
+  const { theme } = useTheme();
   return (
     <SearchStack.Navigator
       screenOptions={({ navigation }) => ({
         headerTitle: '',
         headerShadowVisible: false,
+        headerStyle: { backgroundColor: theme.colors.card },
+        headerTintColor: theme.colors.text,
+        contentStyle: { backgroundColor: theme.colors.background },
         headerLeft: () => (
           <TouchableOpacity onPress={() => navigation.goBack()} style={{ paddingHorizontal: 8, paddingVertical: 6 }}>
-            <Ionicons name="chevron-back" size={18} />
+            <Ionicons name="chevron-back" size={18} color={theme.colors.text} />
           </TouchableOpacity>
         ),
       })}
@@ -40,26 +48,34 @@ function SearchStackNavigator() {
       <SearchStack.Screen name="SearchHome" component={SearchScreen} options={{ headerShown: false }} />
       <SearchStack.Screen name="ProductDetail" component={ProductDetailScreen} options={{ title: 'Mueble' }} />
       <SearchStack.Screen name="ServiceDetail" component={ServiceDetailScreen} options={{ title: 'Servicio' }} />
+      <SearchStack.Screen name="ServiceReview" component={ServiceReviewScreen} options={{ title: 'Dejar reseña' }} />
+      <SearchStack.Screen name="CustomProduct" component={CustomProductScreen} options={{ title: 'Diseño Personalizado' }} />
       <SearchStack.Screen name="Schedule" component={ScheduleAppointmentScreen} options={{ title: 'Agendar' }} />
       <SearchStack.Screen name="ContactInfo" component={ContactInfoScreen} options={{ title: 'Contacto' }} />
+      <SearchStack.Screen name="CartHome" component={CartScreen} options={{ title: 'Carrito' }} />
     </SearchStack.Navigator>
   );
 }
 
 function ProfileStackNavigator() {
+  const { theme } = useTheme();
   return (
     <ProfileStack.Navigator
       screenOptions={({ navigation }) => ({
         headerTitle: '',
         headerShadowVisible: false,
+        headerStyle: { backgroundColor: theme.colors.card },
+        headerTintColor: theme.colors.text,
+        contentStyle: { backgroundColor: theme.colors.background },
         headerLeft: () => (
           <TouchableOpacity onPress={() => navigation.goBack()} style={{ paddingHorizontal: 8, paddingVertical: 6 }}>
-            <Ionicons name="chevron-back" size={18} />
+            <Ionicons name="chevron-back" size={18} color={theme.colors.text} />
           </TouchableOpacity>
         ),
       })}
     >
       <ProfileStack.Screen name="ProfileHome" component={ProfileScreen} options={{ headerShown: false }} />
+      <ProfileStack.Screen name="CartHome" component={CartScreen} options={{ title: 'Carrito' }} />
       <ProfileStack.Screen name="ChangePassword" component={ChangePasswordScreen} options={{ title: 'Cambiar contraseña' }} />
       <ProfileStack.Screen name="EditProfile" component={EditProfileScreen} options={{ title: 'Editar perfil' }} />
       <ProfileStack.Screen name="EditStatus" component={EditStatusScreen} options={{ title: 'Editar estado' }} />
@@ -70,10 +86,17 @@ function ProfileStackNavigator() {
 }
 
 export default function CustomerNavigator() {
+  const { theme } = useTheme();
   return (
     <Tab.Navigator
       screenOptions={({ route }) => ({
         headerShown: false,
+        tabBarStyle: {
+          backgroundColor: theme.colors.card,
+          borderTopColor: theme.colors.border,
+        },
+        tabBarActiveTintColor: theme.colors.primary,
+        tabBarInactiveTintColor: theme.colors.muted,
         tabBarIcon: ({ color, size }) => {
           let icon: keyof typeof Ionicons.glyphMap = 'home-outline';
           if (route.name === 'Buscar') icon = 'home-outline';
@@ -95,24 +118,29 @@ export default function CustomerNavigator() {
         )}
       </Tab.Screen>
       <Tab.Screen name="Mis pedidos" options={{ headerShown: false }}>
-        {() => (
-          <SearchStack.Navigator
-            screenOptions={({ navigation }) => ({
-              headerTitle: '',
-              headerShadowVisible: false,
-              headerLeft: () => (
-                <TouchableOpacity onPress={() => navigation.goBack()} style={{ paddingHorizontal: 8, paddingVertical: 6 }}>
-                  <Ionicons name="chevron-back" size={18} />
-                </TouchableOpacity>
-              ),
-            })}
-          >
-            <SearchStack.Screen name="OrdersHome" component={OrdersScreen} options={{ headerShown: false }} />
-            <SearchStack.Screen name="OrderDetail" component={OrderDetailCustomerScreen} options={{ title: 'Pedido' }} />
-            <SearchStack.Screen name="OrderPayment" component={require('../screens/OrderPaymentScreen').default} options={{ title: 'Pago' }} />
-            <SearchStack.Screen name="CartHome" component={CartScreen} options={{ title: 'Carrito' }} />
-          </SearchStack.Navigator>
-        )}
+        {() => {
+          const { theme } = useTheme();
+          return (
+            <OrdersStack.Navigator
+              screenOptions={({ navigation }) => ({
+                headerTitle: '',
+                headerShadowVisible: false,
+                headerStyle: { backgroundColor: theme.colors.card },
+                headerTintColor: theme.colors.text,
+                contentStyle: { backgroundColor: theme.colors.background },
+                headerLeft: () => (
+                  <TouchableOpacity onPress={() => navigation.goBack()} style={{ paddingHorizontal: 8, paddingVertical: 6 }}>
+                    <Ionicons name="chevron-back" size={18} color={theme.colors.text} />
+                  </TouchableOpacity>
+                ),
+              })}
+            >
+              <OrdersStack.Screen name="OrdersHome" component={OrdersScreen} options={{ headerShown: false }} />
+              <OrdersStack.Screen name="OrderDetail" component={OrderDetailCustomerScreen} options={{ title: 'Pedido' }} />
+              <OrdersStack.Screen name="OrderPayment" component={require('../screens/OrderPaymentScreen').default} options={{ title: 'Pago' }} />
+            </OrdersStack.Navigator>
+          );
+        }}
       </Tab.Screen>
       <Tab.Screen name="Perfil" component={ProfileStackNavigator} />
     </Tab.Navigator>

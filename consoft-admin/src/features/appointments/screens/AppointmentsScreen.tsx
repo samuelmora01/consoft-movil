@@ -1,20 +1,60 @@
 import React, { useMemo, useState, useCallback } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, FlatList } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { useTheme } from '../../../theme/theme';
 import { useAppStore, AppState } from '../../../store/appStore';
 import { Appointment, AppointmentStatus } from '../../../domain/types';
 import { confirmAppointment, cancelAppointment } from '../appointmentsService';
 import { useToast } from '../../../ui/ToastProvider';
 import { responsiveFontSize, moderateScale } from '../../../theme/responsive';
+import { API } from '../../../config';
+import { VisitsApi } from '../../../api/client';
 
 export default function AppointmentsScreen() {
   const { theme } = useTheme();
   const navigation = useNavigation<any>();
   const toast = useToast();
   const [tab, setTab] = useState<'Pendientes' | 'Confirmadas'>('Pendientes');
-  const appointments = useAppStore((s: AppState) => s.appointments);
+  const appointmentsStore = useAppStore((s: AppState) => s.appointments);
   const setStatus = useAppStore((s: AppState) => s.setAppointmentStatus);
+  const [appointments, setAppointments] = useState<Appointment[]>(appointmentsStore);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [actingId, setActingId] = useState<string | null>(null);
+
+  // Cargar visitas reales (admin) y mapear a Appointment para la UI
+  async function loadVisits() {
+    if (!API) return;
+    try {
+      const res: any = await VisitsApi(API).listAdmin();
+      const list: any[] = (res?.visits || res?.items || res?.data?.visits || res?.data || (Array.isArray(res) ? res : [])) as any[];
+      const mapped: Appointment[] = list.map((v: any) => ({
+        id: (v?._id || v?.id) as string,
+        clientId: (v?.user?._id || v?.user?.id || 'unknown') as any,
+        title: v?.user?.name ? `Visita: ${v.user.name}` : (v?.title || 'Visita'),
+        datetime: v?.visitDate || v?.date || v?.startedAt || new Date().toISOString(),
+        status: (String(v?.status).toLowerCase() === 'pendiente' ? AppointmentStatus.Pending : AppointmentStatus.Confirmed) as any,
+        needsApproval: false,
+        createdAt: v?.createdAt || new Date().toISOString(),
+        updatedAt: v?.updatedAt || new Date().toISOString(),
+        location: { type: 'Point', coordinates: [0, 0] },
+        address: v?.address,
+      }));
+      setAppointments(mapped);
+      setError(null);
+    } catch (e) {
+      // si falla, dejamos las de store y mostramos error
+      setAppointments(appointmentsStore);
+      setError((e as Error)?.message || 'No se pudieron cargar las visitas');
+    }
+  }
+
+  useFocusEffect(
+    useCallback(() => {
+      loadVisits();
+      return () => {};
+    }, [])
+  );
   const tabs: Array<'Pendientes' | 'Confirmadas'> = ['Pendientes', 'Confirmadas'];
   const pendingCount = useMemo(
     () => appointments.filter((a) => a.status === AppointmentStatus.Pending).length,
@@ -28,10 +68,9 @@ export default function AppointmentsScreen() {
     () => appointments.filter((a) => (tab === 'Pendientes' ? a.status === AppointmentStatus.Pending : a.status === AppointmentStatus.Confirmed)),
     [appointments, tab],
   );
-  const [refreshing, setRefreshing] = useState(false);
   const onRefresh = useCallback(() => {
     setRefreshing(true);
-    setTimeout(() => setRefreshing(false), 600);
+    loadVisits().finally(() => setRefreshing(false));
   }, []);
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }] }>
@@ -78,17 +117,41 @@ export default function AppointmentsScreen() {
             ) : null}
             {a.status === AppointmentStatus.Pending ? (
               <View style={{ flexDirection: 'row', gap: 8 }}>
-                <TouchableOpacity onPress={async () => { await confirmAppointment(a.id); toast.show('Cita confirmada', 'success'); }} style={[styles.confirmBtn, { backgroundColor: theme.colors.success, borderRadius: theme.radius, paddingVertical: moderateScale(8), paddingHorizontal: moderateScale(12) }]}> 
+                <TouchableOpacity
+                  disabled={actingId === a.id}
+                  onPress={async () => {
+                    try { setActingId(a.id); await confirmAppointment(a.id); toast.show('Cita confirmada', 'success'); await loadVisits(); }
+                    catch (e) { toast.show((e as Error)?.message || 'No se pudo confirmar', 'error'); }
+                    finally { setActingId(null); }
+                  }}
+                  style={[styles.confirmBtn, { backgroundColor: theme.colors.success, borderRadius: theme.radius, paddingVertical: moderateScale(8), paddingHorizontal: moderateScale(12), opacity: actingId === a.id ? 0.6 : 1 }]}
+                > 
                   <Text style={{ color: '#fff', fontWeight: '700', fontSize: responsiveFontSize(12) }}>Confirmar</Text>
                 </TouchableOpacity>
-                <TouchableOpacity onPress={async () => { await cancelAppointment(a.id); toast.show('Cita cancelada', 'info'); }} style={[styles.confirmBtn, { backgroundColor: theme.colors.danger, borderRadius: theme.radius, paddingVertical: moderateScale(8), paddingHorizontal: moderateScale(12) }]}> 
+                <TouchableOpacity
+                  disabled={actingId === a.id}
+                  onPress={async () => {
+                    try { setActingId(a.id); await cancelAppointment(a.id); toast.show('Cita cancelada', 'info'); await loadVisits(); }
+                    catch (e) { toast.show((e as Error)?.message || 'No se pudo cancelar', 'error'); }
+                    finally { setActingId(null); }
+                  }}
+                  style={[styles.confirmBtn, { backgroundColor: theme.colors.danger, borderRadius: theme.radius, paddingVertical: moderateScale(8), paddingHorizontal: moderateScale(12), opacity: actingId === a.id ? 0.6 : 1 }]}
+                > 
                   <Text style={{ color: '#fff', fontWeight: '700', fontSize: responsiveFontSize(12) }}>Cancelar</Text>
                 </TouchableOpacity>
               </View>
             ) : null}
           </TouchableOpacity>
         )}
-        ListEmptyComponent={<View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 }}><Text style={{ color: theme.colors.muted, fontSize: responsiveFontSize(12) }}>No hay citas para mostrar</Text></View>}
+        ListEmptyComponent={
+          <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+            {error ? (
+              <Text style={{ color: theme.colors.danger, fontSize: responsiveFontSize(12) }}>Error: {error}</Text>
+            ) : (
+              <Text style={{ color: theme.colors.muted, fontSize: responsiveFontSize(12) }}>No hay citas para mostrar</Text>
+            )}
+          </View>
+        }
       />
     </View>
   );

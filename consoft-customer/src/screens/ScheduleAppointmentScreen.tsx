@@ -1,8 +1,11 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { useToast } from '../ui/ToastProvider';
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, Modal, FlatList, Alert, Animated, Easing, Pressable, Image } from 'react-native';
+import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, ActivityIndicator, Animated, Easing, Pressable } from 'react-native';
 import { useUserStore } from '../store/userStore';
 import { Ionicons } from '@expo/vector-icons';
+import { API } from '../config';
+import { VisitsApi, UsersApi } from '../api/client';
+import { useTheme } from '../theme/theme';
 
 type Props = {
   route: { params?: { item?: { title?: string } } };
@@ -38,33 +41,77 @@ function generateMonthMatrix(year: number, monthIndex: number) {
   return weeks;
 }
 
-const TIMES = (() => {
-  const list: string[] = [];
-  for (let h = 8; h <= 19; h += 1) {
-    [0, 15, 30, 45].forEach((m) => {
-      list.push(`${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`);
-    });
-  }
-  return list;
-})();
+const WEEKDAYS = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
 
 export default function ScheduleAppointmentScreen({ route, navigation }: Props) {
-  const productTitle = route?.params?.item?.title ?? 'Agendar una cita con nosotros';
   const toast = useToast();
+  const { theme } = useTheme();
   const contact = useUserStore((s) => s.contact);
 
+  // Información de contacto
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [phone, setPhone] = useState('');
+  const [address, setAddress] = useState('');
+  const [description, setDescription] = useState('');
+  const [loadingUserData, setLoadingUserData] = useState(true);
+
+  // Cargar datos del usuario al montar el componente
+  useEffect(() => {
+    const loadUserData = async () => {
+      try {
+        if (!API) return;
+        const res = await UsersApi(API).me();
+        const user: any = (res as any)?.user || res;
+        
+        // Autorellenar con datos del usuario
+        if (user.name) setName(user.name);
+        if (user.email) setEmail(user.email);
+        if (user.phone) setPhone(user.phone);
+        if (user.address) setAddress(user.address);
+      } catch (e) {
+        // Si falla, intentar usar datos del store
+        if (contact?.backupEmail) setEmail(contact.backupEmail);
+        if (contact?.backupPhone) setPhone(contact.backupPhone);
+        if (contact?.defaultAddress) setAddress(contact.defaultAddress);
+      } finally {
+        setLoadingUserData(false);
+      }
+    };
+    loadUserData();
+  }, []);
+
+  // Calendario y slots
   const today = new Date();
-  const [defaultAddress, setDefaultAddress] = useState(contact?.defaultAddress ?? '');
-  const [useDefaultAddress, setUseDefaultAddress] = useState(true);
-  const [customAddress, setCustomAddress] = useState('');
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
-  const [selectedTime, setSelectedTime] = useState<string>('17:00');
-  const [openCalendar, setOpenCalendar] = useState(false);
-  const [openHourPicker, setOpenHourPicker] = useState(false);
+  const [selectedTime, setSelectedTime] = useState<string>('');
+  const [availableSlots, setAvailableSlots] = useState<string[]>([]);
+  const [loadingSlots, setLoadingSlots] = useState(false);
   const [monthIndex, setMonthIndex] = useState<number>(today.getMonth());
   const [year, setYear] = useState<number>(today.getFullYear());
+  const [loading, setLoading] = useState(false);
 
   const weeks = useMemo(() => generateMonthMatrix(year, monthIndex), [monthIndex, year]);
+
+  // Cargar slots disponibles cuando se selecciona una fecha
+  useEffect(() => {
+    if (!selectedDate) return;
+    const fetchSlots = async () => {
+      setLoadingSlots(true);
+      try {
+        const dateStr = selectedDate.toISOString().split('T')[0]; // YYYY-MM-DD
+        const res = await VisitsApi(API).getAvailableSlots(dateStr);
+        setAvailableSlots((res as any).availableSlots || []);
+        setSelectedTime(''); // Reset time cuando cambia fecha
+      } catch (e: any) {
+        toast.show(e.message || 'Error al cargar horarios', 'error');
+        setAvailableSlots([]);
+      } finally {
+        setLoadingSlots(false);
+      }
+    };
+    fetchSlots();
+  }, [selectedDate]);
 
   const onPrevMonth = () => {
     if (monthIndex === 0) {
@@ -84,199 +131,514 @@ export default function ScheduleAppointmentScreen({ route, navigation }: Props) 
     [monthIndex, year]
   );
 
-  const submit = () => {
-    if (!selectedDate || !selectedTime) {
-      toast.show('Completa fecha y hora', 'error');
+  const submit = async () => {
+    // Validaciones
+    if (!name.trim()) {
+      toast.show('Ingresa tu nombre completo', 'error');
       return;
     }
-    if (!contact?.backupEmail || !contact?.backupPhone || !contact?.defaultAddress) {
-      navigation.navigate('ContactInfo');
-      toast.show('Completa tu información de contacto', 'error');
+    if (!email.trim()) {
+      toast.show('Ingresa tu email', 'error');
       return;
     }
-    const dateStr = selectedDate.toISOString().split('T')[0];
-    toast.show('Cita solicitada', 'success');
-    navigation.goBack();
+    if (!phone.trim()) {
+      toast.show('Ingresa tu teléfono', 'error');
+      return;
+    }
+    if (!address.trim()) {
+      toast.show('Ingresa la dirección', 'error');
+      return;
+    }
+    if (!selectedDate) {
+      toast.show('Selecciona una fecha', 'error');
+      return;
+    }
+    if (!selectedTime) {
+      toast.show('Selecciona una hora', 'error');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const visitDate = selectedDate.toISOString().split('T')[0]; // YYYY-MM-DD
+      const payload: any = {
+        visitDate,
+        visitTime: selectedTime,
+        address: address.trim(),
+        description: description.trim() || undefined,
+        userName: name.trim(),
+        userEmail: email.trim(),
+        userPhone: phone.trim(),
+      };
+
+      await VisitsApi(API).create(payload);
+      toast.show('¡Visita agendada exitosamente!', 'success');
+      navigation.goBack();
+    } catch (e: any) {
+      toast.show(e.message || 'Error al agendar visita', 'error');
+    } finally {
+      setLoading(false);
+    }
   };
 
-  return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Agenda una cita con nosotros</Text>
+  const isToday = (date: Date) => {
+    const now = new Date();
+    return date.toDateString() === now.toDateString();
+  };
 
-      <Text style={[styles.label, { marginTop: 14 }]}>Dirección</Text>
-      <TouchableOpacity style={styles.timeRow} onPress={() => setUseDefaultAddress((v) => !v)}>
-        <Text style={{ color: '#333', flex: 1 }}>{useDefaultAddress ? (defaultAddress || 'Usar dirección predeterminada') : (customAddress || 'Añadir dirección diferente')}</Text>
-        <Ionicons name="swap-vertical" size={18} color="#6b4028" />
-      </TouchableOpacity>
-      {!useDefaultAddress && (
-        <TextInput value={customAddress} onChangeText={setCustomAddress} placeholder="Escribe la dirección para esta cita" style={[styles.input, { marginTop: 8 }]} />
-      )}
+  const isPast = (date: Date) => {
+    const now = new Date();
+    now.setHours(0, 0, 0, 0);
+    const checkDate = new Date(date);
+    checkDate.setHours(0, 0, 0, 0);
+    return checkDate < now;
+  };
 
-      <View style={styles.mapContainer}>
-        <Image
-          source={{ uri: 'https://tile.openstreetmap.org/12/1205/1541.png' }}
-          style={styles.mapImage}
-          resizeMode="cover"
-        />
+  if (loadingUserData) {
+    return (
+      <View style={[styles.loadingScreen, { backgroundColor: theme.colors.background }]}>
+        <ActivityIndicator size="large" color={theme.colors.primary} />
+        <Text style={[styles.loadingScreenText, { color: theme.colors.muted }]}>Cargando información...</Text>
       </View>
+    );
+  }
 
-      <TouchableOpacity style={styles.dateButton} onPress={() => setOpenCalendar(true)}>
-        <Text style={styles.dateButtonText}>{selectedDate ? selectedDate.toLocaleDateString() : 'Selecciona una fecha'}</Text>
-      </TouchableOpacity>
+  return (
+    <ScrollView style={[styles.container, { backgroundColor: theme.colors.background }]} contentContainerStyle={{ paddingBottom: 40 }}>
+      <Text style={[styles.mainTitle, { color: theme.colors.text }]}>Agenda tu <Text style={[styles.visitText, { color: theme.colors.primary }]}>visita</Text></Text>
+      <Text style={[styles.subtitle, { color: theme.colors.muted }]}>Vamos hasta tu casa. Cuéntanos cuándo y dónde, y nuestro equipo estará listo para asesorarte.</Text>
 
-      <Text style={[styles.label, { marginTop: 14 }]}>Hora</Text>
-      <TouchableOpacity style={styles.timeRow} onPress={() => setOpenHourPicker(true)}>
-        <Text style={{ color: '#333' }}>{selectedTime}</Text>
-        <Ionicons name="chevron-down" size={18} color="#6b4028" />
-      </TouchableOpacity>
-
-      <TouchableOpacity style={styles.submit} onPress={submit}>
-        <Text style={styles.submitText}>Agendar</Text>
-      </TouchableOpacity>
-
-      <BottomSheet visible={openCalendar} onClose={() => setOpenCalendar(false)}>
-        <View style={styles.calendarCard}>
-            <Text style={styles.calendarTitle}>Selecciona una fecha</Text>
-            <View style={styles.calendarHeader}>
-              <TouchableOpacity onPress={onPrevMonth}>
-                <Ionicons name="chevron-back" size={20} color="#6b4028" />
-              </TouchableOpacity>
-              <Text style={styles.monthText}>{monthLabel}</Text>
-              <TouchableOpacity onPress={onNextMonth}>
-                <Ionicons name="chevron-forward" size={20} color="#6b4028" />
-              </TouchableOpacity>
+      {/* Información de contacto */}
+      <View style={[styles.section, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}>
+        <Text style={[styles.sectionTitle, { color: theme.colors.primary }]}>INFORMACIÓN DE CONTACTO</Text>
+        
+        <View style={styles.row}>
+          <View style={styles.halfInput}>
+            <View style={[styles.inputContainer, { backgroundColor: theme.colors.background, borderColor: theme.colors.border }]}>
+              <Ionicons name="person-outline" size={18} color={theme.colors.primary} style={styles.inputIcon} />
+              <TextInput
+                style={[styles.input, { color: theme.colors.text }]}
+                placeholder="Nombre completo"
+                placeholderTextColor={theme.colors.muted}
+                value={name}
+                onChangeText={setName}
+              />
             </View>
-
-            <View style={styles.weekHeader}>
-              {['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map((d) => (
-                <Text key={d} style={styles.weekHeaderText}>{d}</Text>
-              ))}
+          </View>
+          <View style={styles.halfInput}>
+            <View style={[styles.inputContainer, { backgroundColor: theme.colors.background, borderColor: theme.colors.border }]}>
+              <Ionicons name="mail-outline" size={18} color={theme.colors.primary} style={styles.inputIcon} />
+              <TextInput
+                style={[styles.input, { color: theme.colors.text }]}
+                placeholder="Email"
+                placeholderTextColor={theme.colors.muted}
+                value={email}
+                onChangeText={setEmail}
+                keyboardType="email-address"
+                autoCapitalize="none"
+              />
             </View>
-
-            {weeks.map((w, wi) => (
-              <View key={wi} style={styles.weekRow}>
-                {w.map((cell, ci) => {
-                  const isSelected = cell.date && selectedDate && cell.date.toDateString() === selectedDate.toDateString();
-                  return (
-                    <TouchableOpacity
-                      key={`${wi}-${ci}`}
-                      style={[styles.dayCell, isSelected && styles.daySelected]}
-                      disabled={!cell.d}
-                      onPress={() => {
-                        if (!cell.date) return;
-                        setSelectedDate(cell.date);
-                        setOpenCalendar(false);
-                      }}
-                    >
-                      <Text style={[styles.dayText, !cell.d && { opacity: 0 }, isSelected && { color: '#fff' }]}>
-                        {cell.d ?? ''}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-            ))}
+          </View>
         </View>
-      </BottomSheet>
 
-      <BottomSheet visible={openHourPicker} onClose={() => setOpenHourPicker(false)}>
-        <View style={styles.timeCard}>
-          <FlatList
-            data={TIMES}
-            keyExtractor={(k) => k}
-            renderItem={({ item }) => (
-              <TouchableOpacity
-                style={styles.timeItem}
-                onPress={() => {
-                  setSelectedTime(item);
-                  setOpenHourPicker(false);
-                }}
-              >
-                <Text style={{ color: '#333' }}>{item}</Text>
-              </TouchableOpacity>
-            )}
+        <View style={styles.row}>
+          <View style={styles.halfInput}>
+            <View style={[styles.inputContainer, { backgroundColor: theme.colors.background, borderColor: theme.colors.border }]}>
+              <Ionicons name="call-outline" size={18} color={theme.colors.primary} style={styles.inputIcon} />
+              <TextInput
+                style={[styles.input, { color: theme.colors.text }]}
+                placeholder="Teléfono"
+                placeholderTextColor={theme.colors.muted}
+                value={phone}
+                onChangeText={setPhone}
+                keyboardType="phone-pad"
+              />
+            </View>
+          </View>
+          <View style={styles.halfInput}>
+            <View style={[styles.inputContainer, { backgroundColor: theme.colors.background, borderColor: theme.colors.border }]}>
+              <Ionicons name="location-outline" size={18} color={theme.colors.primary} style={styles.inputIcon} />
+              <TextInput
+                style={[styles.input, { color: theme.colors.text }]}
+                placeholder="Dirección"
+                placeholderTextColor={theme.colors.muted}
+                value={address}
+                onChangeText={setAddress}
+              />
+            </View>
+          </View>
+        </View>
+
+        <Text style={[styles.optionalLabel, { color: theme.colors.primary }]}>DESCRIPCIÓN (opcional)</Text>
+        <View style={[styles.textAreaContainer, { backgroundColor: theme.colors.background, borderColor: theme.colors.border }]}>
+          <Ionicons name="document-text-outline" size={18} color={theme.colors.primary} style={styles.textAreaIcon} />
+          <TextInput
+            style={[styles.textArea, { color: theme.colors.text }]}
+            placeholder="Cuéntanos qué necesitas o qué mueble tienes en mente..."
+            placeholderTextColor={theme.colors.muted}
+            value={description}
+            onChangeText={setDescription}
+            multiline
+            numberOfLines={4}
+            textAlignVertical="top"
           />
         </View>
-      </BottomSheet>
+      </View>
 
-      {/* Contact info moved to separate screen */}
-    </View>
+      {/* Fecha de visita */}
+      <View style={[styles.section, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}>
+        <Text style={[styles.sectionTitle, { color: theme.colors.primary }]}>FECHA DE VISITA</Text>
+
+        <View style={styles.calendarHeader}>
+          <TouchableOpacity onPress={onPrevMonth} style={[styles.navButton, { backgroundColor: theme.colors.background }]}>
+            <Ionicons name="chevron-back" size={24} color={theme.colors.text} />
+          </TouchableOpacity>
+          <Text style={[styles.monthText, { color: theme.colors.text }]}>{monthLabel}</Text>
+          <TouchableOpacity onPress={onNextMonth} style={[styles.navButton, { backgroundColor: theme.colors.background }]}>
+            <Ionicons name="chevron-forward" size={24} color={theme.colors.text} />
+          </TouchableOpacity>
+        </View>
+
+        <View style={[styles.calendar, { backgroundColor: theme.colors.background }]}>
+          <View style={styles.weekHeader}>
+            {WEEKDAYS.map((d) => (
+              <Text key={d} style={[styles.weekDay, { color: theme.colors.muted }]}>{d}</Text>
+            ))}
+          </View>
+
+          {weeks.map((w, wi) => (
+            <View key={wi} style={styles.weekRow}>
+              {w.map((cell, ci) => {
+                const selected = cell.date && selectedDate && cell.date.toDateString() === selectedDate.toDateString();
+                const past = cell.date && isPast(cell.date);
+                const today = cell.date && isToday(cell.date);
+                return (
+                  <TouchableOpacity
+                    key={`${wi}-${ci}`}
+                    style={[
+                      styles.dayCell,
+                      selected && { backgroundColor: theme.colors.primary },
+                      today && !selected && { borderWidth: 2, borderColor: theme.colors.primary },
+                    ]}
+                    disabled={!cell.d || past}
+                    onPress={() => {
+                      if (!cell.date || past) return;
+                      setSelectedDate(cell.date);
+                    }}
+                  >
+                    <Text
+                      style={[
+                        styles.dayText,
+                        { color: theme.colors.text },
+                        !cell.d && { opacity: 0 },
+                        selected && { color: theme.mode === 'dark' ? '#1a1a1a' : '#fff', fontWeight: '700' },
+                        past && { color: theme.colors.muted, opacity: 0.5 },
+                      ]}
+                    >
+                      {cell.d ?? ''}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          ))}
+        </View>
+
+        <View style={[styles.legendRow, { borderTopColor: theme.colors.border }]}>
+          <View style={styles.legendItem}>
+            <View style={[styles.legendDot, { backgroundColor: theme.colors.muted, opacity: 0.5 }]} />
+            <Text style={[styles.legendText, { color: theme.colors.muted }]}>Fecha pasada</Text>
+          </View>
+          <View style={styles.legendItem}>
+            <View style={[styles.legendDot, { backgroundColor: theme.colors.background, borderWidth: 2, borderColor: theme.colors.primary }]} />
+            <Text style={[styles.legendText, { color: theme.colors.muted }]}>Hoy</Text>
+          </View>
+          <View style={styles.legendItem}>
+            <View style={[styles.legendDot, { backgroundColor: theme.colors.primary }]} />
+            <Text style={[styles.legendText, { color: theme.colors.muted }]}>Seleccionado</Text>
+          </View>
+        </View>
+      </View>
+
+      {/* Hora de visita */}
+      <View style={[styles.section, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}>
+        <Text style={[styles.sectionTitle, { color: theme.colors.primary }]}>HORA DE VISITA</Text>
+        {!selectedDate ? (
+          <View style={[styles.placeholderBox, { backgroundColor: theme.colors.background }]}>
+            <Text style={[styles.placeholderText, { color: theme.colors.muted }]}>Selecciona una fecha para ver los horarios disponibles.</Text>
+          </View>
+        ) : loadingSlots ? (
+          <View style={[styles.loadingBox, { backgroundColor: theme.colors.background }]}>
+            <ActivityIndicator size="small" color={theme.colors.primary} />
+            <Text style={[styles.loadingText, { color: theme.colors.muted }]}>Cargando horarios...</Text>
+          </View>
+        ) : availableSlots.length === 0 ? (
+          <View style={[styles.placeholderBox, { backgroundColor: theme.colors.background }]}>
+            <Text style={[styles.placeholderText, { color: theme.colors.muted }]}>No hay horarios disponibles para esta fecha.</Text>
+          </View>
+        ) : (
+          <View style={styles.slotsGrid}>
+            {availableSlots.map((slot) => (
+              <TouchableOpacity
+                key={slot}
+                style={[
+                  styles.slotButton,
+                  { backgroundColor: theme.colors.background, borderColor: theme.colors.border },
+                  selectedTime === slot && { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
+                ]}
+                onPress={() => setSelectedTime(slot)}
+              >
+                <Text style={[
+                  styles.slotText,
+                  { color: theme.colors.text },
+                  selectedTime === slot && { color: theme.mode === 'dark' ? '#1a1a1a' : '#fff' },
+                ]}>
+                  {slot}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
+      </View>
+
+      {/* Botón de agendar */}
+      <View style={styles.footer}>
+        <Text style={[styles.footerNote, { color: theme.colors.text }]}>Completa tu solicitud</Text>
+        <Text style={[styles.footerSubnote, { color: theme.colors.muted }]}>Todos los campos son requeridos</Text>
+        <TouchableOpacity
+          style={[styles.submitButton, { backgroundColor: theme.colors.primary }, loading && styles.submitButtonDisabled]}
+          onPress={submit}
+          disabled={loading}
+        >
+          {loading ? (
+            <ActivityIndicator size="small" color="#fff" />
+          ) : (
+            <>
+              <Text style={[styles.submitText, { color: theme.mode === 'dark' ? '#1a1a1a' : '#fff' }]}>Agendar Visita</Text>
+              <Ionicons name="arrow-forward" size={20} color={theme.mode === 'dark' ? '#1a1a1a' : '#fff'} />
+            </>
+          )}
+        </TouchableOpacity>
+      </View>
+    </ScrollView>
   );
 }
-
-const BROWN = '#6b4028';
-const LIGHT = '#f3ece7';
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#fff', padding: 20 },
-  title: { fontSize: 18, fontWeight: '800', marginBottom: 12 },
-  field: { marginBottom: 12 },
-  label: { fontWeight: '600', color: '#4c3d32', marginBottom: 6 },
-  input: { borderWidth: 1, borderColor: '#e6ded8', borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10 },
-  dateButton: { backgroundColor: BROWN, borderRadius: 14, paddingVertical: 12, alignItems: 'center', marginTop: 6 },
-  dateButtonText: { color: '#fff', fontWeight: '700' },
-  timeRow: {
-    height: 44,
+  container: { 
+    flex: 1,
+    paddingHorizontal: 16,
+  },
+  loadingScreen: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 12,
+  },
+  loadingScreenText: {
+    fontSize: 14,
+  },
+  mainTitle: {
+    fontSize: 32,
+    fontWeight: '700',
+    marginTop: 20,
+    marginBottom: 8,
+  },
+  visitText: {
+    fontStyle: 'italic',
+  },
+  subtitle: {
+    fontSize: 14,
+    marginBottom: 24,
+    lineHeight: 20,
+  },
+  section: {
+    borderRadius: 16,
+    borderWidth: 1,
+    padding: 16,
+    marginBottom: 16,
+  },
+  sectionTitle: {
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 1,
+    marginBottom: 16,
+  },
+  row: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 12,
+  },
+  halfInput: {
+    flex: 1,
+  },
+  inputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#e6ded8',
     paddingHorizontal: 12,
-    alignItems: 'center',
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+    height: 48,
   },
-  submit: { marginTop: 24, backgroundColor: BROWN, paddingVertical: 14, borderRadius: 16, alignItems: 'center' },
-  submitText: { color: '#fff', fontWeight: '800' },
-
-  modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.35)', justifyContent: 'center', padding: 20 },
-  calendarCard: { backgroundColor: '#fff', borderRadius: 20, padding: 16 },
-  calendarTitle: { fontWeight: '800', marginBottom: 8, textAlign: 'center' },
-  calendarHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
-  monthText: { fontWeight: '700', color: '#4c3d32' },
-  weekHeader: { flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 6, marginBottom: 6 },
-  weekHeaderText: { width: 32, textAlign: 'center', color: '#6c5b4e' },
-  weekRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6, paddingHorizontal: 6 },
-  dayCell: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
-  daySelected: { backgroundColor: BROWN },
-  dayText: { color: '#4c3d32' },
-
-  timeCard: { backgroundColor: '#fff', borderRadius: 16, maxHeight: 320, paddingVertical: 8 },
-  timeItem: { paddingVertical: 12, paddingHorizontal: 16 },
-  contactBtn: { },
-  contactBtnText: { },
-  contactCard: { },
-  mapContainer: { marginTop: 10, borderRadius: 12, overflow: 'hidden', borderWidth: 1, borderColor: '#e6ded8' },
-  mapImage: { width: '100%', height: 160 },
+  inputIcon: {
+    marginRight: 8,
+  },
+  input: {
+    flex: 1,
+    fontSize: 14,
+  },
+  optionalLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 1,
+    marginTop: 4,
+    marginBottom: 12,
+  },
+  textAreaContainer: {
+    flexDirection: 'row',
+    borderRadius: 12,
+    borderWidth: 1,
+    padding: 12,
+    minHeight: 100,
+  },
+  textAreaIcon: {
+    marginRight: 8,
+    marginTop: 2,
+  },
+  textArea: {
+    flex: 1,
+    fontSize: 14,
+    textAlignVertical: 'top',
+  },
+  calendarHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 16,
+  },
+  navButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  monthText: {
+    fontSize: 16,
+    fontWeight: '700',
+    textTransform: 'capitalize',
+  },
+  calendar: {
+    borderRadius: 12,
+    padding: 12,
+  },
+  weekHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    marginBottom: 12,
+  },
+  weekDay: {
+    width: 40,
+    textAlign: 'center',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  weekRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    marginBottom: 8,
+  },
+  dayCell: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dayText: {
+    fontSize: 14,
+  },
+  legendRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    marginTop: 16,
+    paddingTop: 16,
+    borderTopWidth: 1,
+  },
+  legendItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  legendDot: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+  },
+  legendText: {
+    fontSize: 11,
+  },
+  placeholderBox: {
+    borderRadius: 12,
+    padding: 20,
+    alignItems: 'center',
+  },
+  placeholderText: {
+    fontSize: 14,
+    textAlign: 'center',
+  },
+  loadingBox: {
+    borderRadius: 12,
+    padding: 20,
+    alignItems: 'center',
+    gap: 12,
+  },
+  loadingText: {
+    fontSize: 14,
+  },
+  slotsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  slotButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    minWidth: 80,
+    alignItems: 'center',
+  },
+  slotText: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  footer: {
+    marginTop: 8,
+    marginBottom: 20,
+  },
+  footerNote: {
+    fontSize: 14,
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  footerSubnote: {
+    fontSize: 12,
+    marginBottom: 16,
+  },
+  submitButton: {
+    borderRadius: 12,
+    paddingVertical: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  submitButtonDisabled: {
+    opacity: 0.6,
+  },
+  submitText: {
+    fontSize: 16,
+    fontWeight: '700',
+  },
 });
-
-// Bottom sheet component similar to other screens
-function BottomSheet({ visible, onClose, children }: { visible: boolean; onClose: () => void; children: React.ReactNode }) {
-  const translateY = React.useRef(new Animated.Value(400)).current;
-  const opacity = React.useRef(new Animated.Value(0)).current;
-
-  React.useEffect(() => {
-    if (visible) {
-      opacity.setValue(0);
-      translateY.setValue(400);
-      Animated.sequence([
-        Animated.timing(opacity, { toValue: 1, duration: 120, useNativeDriver: true, easing: Easing.out(Easing.quad) }),
-        Animated.timing(translateY, { toValue: 0, duration: 220, useNativeDriver: true, easing: Easing.out(Easing.cubic) }),
-      ]).start();
-    }
-  }, [visible]);
-
-  if (!visible) return null;
-
-  return (
-    <View style={{ ...StyleSheet.absoluteFillObject, justifyContent: 'flex-end' }}>
-      <Pressable style={{ ...StyleSheet.absoluteFillObject }} onPress={onClose}>
-        <Animated.View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.35)', opacity }} />
-      </Pressable>
-      <Animated.View style={[{ backgroundColor: '#fff', borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 16, maxHeight: '85%' }, { transform: [{ translateY }] }]}>
-        {children}
-      </Animated.View>
-    </View>
-  );
-}
-
-

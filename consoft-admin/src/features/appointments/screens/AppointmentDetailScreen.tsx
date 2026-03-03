@@ -10,6 +10,8 @@ import AppointmentMap from '../components/AppointmentMap.native';
 import { Ionicons } from '@expo/vector-icons';
 import { scale, verticalScale, moderateScale, responsiveFontSize } from '../../../theme/responsive';
 import { useToast } from '../../../ui/ToastProvider';
+import { API } from '../../../config';
+import { VisitsApi } from '../../../api/client';
 
 
 type RouteParams = { id: string };
@@ -20,7 +22,10 @@ export default function AppointmentDetailScreen() {
   const navigation = useNavigation();
   const toast = useToast();
   const { id } = (route.params as RouteParams) || { id: '' };
-  const appointment = useAppStore((s: AppState) => s.appointments.find((a) => a.id === id)) as Appointment | undefined;
+  const appointmentStore = useAppStore((s: AppState) => s.appointments.find((a) => a.id === id)) as Appointment | undefined;
+  const [remoteAppt, setRemoteAppt] = useState<Appointment | undefined>(undefined);
+  const [triedFetch, setTriedFetch] = useState(false);
+  const appointment = appointmentStore || remoteAppt;
   const updateLocation = useAppStore((s: AppState) => s.updateAppointmentLocation);
   const [date, setDate] = useState<Date>(() => (appointment ? new Date(appointment.datetime) : new Date()));
   const [time, setTime] = useState<Date>(() => (appointment ? new Date(appointment.datetime) : new Date()));
@@ -54,6 +59,34 @@ export default function AppointmentDetailScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [appointment?.id]);
 
+  // Cargar cita por ID desde backend cuando no esté en el store
+  useEffect(() => {
+    (async () => {
+      if (appointment || triedFetch || !API || !id) return;
+      setTriedFetch(true);
+      try {
+        const res: any = await VisitsApi(API).get(id);
+        const v: any = res?.visit || res;
+        if (!v) return;
+        const mapped: Appointment = {
+          id: String(v?._id || v?.id || id),
+          clientId: String(v?.user?._id || v?.user?.id || 'unknown') as any,
+          title: v?.user?.name ? `Visita: ${v.user.name}` : (v?.title || 'Visita'),
+          datetime: v?.visitDate || v?.date || v?.startedAt || new Date().toISOString(),
+          status: (String(v?.status).toLowerCase() === 'pendiente' ? (1 as any) : (2 as any)), // enum mapping not used here
+          needsApproval: false,
+          createdAt: v?.createdAt || new Date().toISOString(),
+          updatedAt: v?.updatedAt || new Date().toISOString(),
+          location: { type: 'Point', coordinates: [0, 0] },
+          address: v?.address,
+        };
+        setRemoteAppt(mapped);
+      } catch {
+        // ignore
+      }
+    })();
+  }, [API, id, appointment, triedFetch]);
+
   const mergedNow = useMemo(() => mergeDateAndTime(date, time), [date, time]);
   const combinedISO = useMemo(() => mergedNow.toISOString(), [mergedNow]);
   const hasDateChanged = useMemo(() => initialized && minutesSinceEpoch(mergedNow) !== initialMinuteRef.current, [initialized, mergedNow]);
@@ -76,10 +109,16 @@ export default function AppointmentDetailScreen() {
     return days;
   }, [calendarMonth]);
 
+  function getLocalIsoNoZ(d: Date): string {
+    const off = d.getTimezoneOffset();
+    const local = new Date(d.getTime() - off * 60000);
+    return local.toISOString().replace('Z', '');
+  }
+
   if (!appointment) {
     return (
       <View style={[styles.container, { backgroundColor: theme.colors.background }] }>
-        <Text style={{ color: theme.colors.text }}>Cita no encontrada</Text>
+        <Text style={{ color: theme.colors.text }}>{triedFetch ? 'Cita no encontrada' : 'Cargando cita...'}</Text>
       </View>
     );
   }
@@ -228,11 +267,23 @@ export default function AppointmentDetailScreen() {
           style={[styles.btn, { backgroundColor: hasDateChanged ? theme.colors.warning : theme.colors.primary }]}
           onPress={async () => {
             if (hasDateChanged) {
-              await rescheduleSvc(appointment.id, combinedISO);
-              toast.show('Cita re-agendada', 'success');
+              try {
+                if (!API) throw new Error('Configura API');
+                await VisitsApi(API).update(String(appointment.id), { visitDate: getLocalIsoNoZ(mergedNow), address: appointment.address });
+                toast.show('Cita re-agendada', 'success');
+              } catch (e) {
+                toast.show((e as Error)?.message || 'No se pudo re-agendar', 'error');
+                return;
+              }
             } else {
-              await confirmAppointment(appointment.id);
-              toast.show('Cita confirmada', 'success');
+              try {
+                if (!API) throw new Error('Configura API');
+                await VisitsApi(API).updateStatus(String(appointment.id), 'confirmada');
+                toast.show('Cita confirmada', 'success');
+              } catch (e) {
+                toast.show((e as Error)?.message || 'No se pudo confirmar', 'error');
+                return;
+              }
             }
             navigation.goBack();
           }}

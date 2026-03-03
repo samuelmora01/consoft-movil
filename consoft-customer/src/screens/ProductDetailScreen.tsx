@@ -1,154 +1,312 @@
-import React from 'react';
-import { View, Text, StyleSheet, Image, ScrollView, TouchableOpacity, Alert } from 'react-native';
+import React, { useState } from 'react';
+import {
+  View, Text, StyleSheet, Image, ScrollView,
+  TouchableOpacity, Alert, ActivityIndicator, TextInput,
+} from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { API } from '../config';
 import { QuotationsApi } from '../api/client';
-import { io } from 'socket.io-client';
-import FloatingCartButton from '../components/FloatingCartButton';
+import { useTheme } from '../theme/theme';
+
+const BROWN = '#6b4028';
 
 export default function ProductDetailScreen({ route, navigation }: any) {
   const { item } = route.params || {};
+  const { theme } = useTheme();
 
+  // Según la documentación: producto tiene _id, name, description, descriptionC, imageUrl
+  const productId: string = String(item?._id || item?.id || route.params?.id || '');
+  const imageUrl: string = item?.imageUrl || item?.image || item?.featuredImage || '';
+  const productName: string = item?.name || item?.title || 'Producto';
+  const descriptionText: string = item?.description || item?.descripcion || item?.descriptionC || '';
+  const categoryName: string = item?.category?.name || item?.categoryName || '';
+
+  const [quantity, setQuantity] = useState(1);
+  const [color, setColor] = useState('');
+  const [size, setSize] = useState('');
+  const [loadingCart, setLoadingCart] = useState(false);
+  const [loadingQuote, setLoadingQuote] = useState(false);
+
+  function formatErr(e: unknown): string {
+    const err: any = e;
+    const status = err?.status ? ` (HTTP ${err.status})` : '';
+    return `${err?.message || 'Error inesperado'}${status}`;
+  }
+
+  // Añadir al carrito: POST /api/quotations/cart con productId, quantity, color, size
   async function addToCart() {
+    if (!productId) { Alert.alert('Error', 'Producto sin ID'); return; }
+    if (!API) { Alert.alert('Error', 'Configura la URL del backend'); return; }
+
+    setLoadingCart(true);
     try {
-      if (!API) throw new Error('Configura API');
-      const cart = await QuotationsApi(API).getCart();
-      const cartId: string = (cart as any)?.cart?._id || (cart as any)?._id || (cart as any)?.id;
-      await QuotationsApi(API).addItem(cartId, { productId: item?.id || item?._id || route.params?.id, quantity: 1 });
-      Alert.alert('Carrito', 'Producto añadido al carrito.');
+      await QuotationsApi(API).addItemToCart({
+        productId,
+        quantity,
+        color: color.trim() || 'Sin color', // Backend exige color obligatorio
+        size: size.trim() || '', // Size opcional
+      });
+      Alert.alert('✓ Añadido al carrito', `${quantity} × ${productName}`, [
+        { text: 'Ver carrito', onPress: () => navigation.navigate('CartHome') },
+        { text: 'Seguir viendo', style: 'cancel' },
+      ]);
     } catch (e) {
-      Alert.alert('Error', (e as Error)?.message || 'No se pudo añadir al carrito');
+      Alert.alert('Error al añadir', formatErr(e));
+    } finally {
+      setLoadingCart(false);
     }
   }
 
-  async function quickQuote() {
+  // Solicitar cotización:
+  // Intentar quick (solo este producto). Si falla (500), hacer fallback al flujo del carrito.
+  async function requestQuote() {
+    if (!productId) { Alert.alert('Error', 'Producto sin ID'); return; }
+    if (!API) { Alert.alert('Error', 'Configura la URL del backend'); return; }
+    setLoadingQuote(true);
+    let usedFallback = false;
     try {
-      if (!API) throw new Error('Configura API');
-      const res: any = await QuotationsApi(API).quick(item?.id || item?._id || route.params?.id, { quantity: 1 });
-      const quotationId: string | undefined = res?.quotation?._id || res?.quotation?.id;
-      // Enviar primer mensaje al chat con referencia del producto
-      try {
-        const socket = io(API, { withCredentials: true, transports: ['websocket'] });
-        const qid = quotationId || (item?.id || item?._id || route.params?.id);
-        socket.emit('quotation:join', { quotationId: qid });
-        socket.emit('order:join', { orderId: qid });
-        const title = item?.title || item?.name || 'Producto';
-        socket.emit('chat:message', { quotationId: qid, orderId: qid, message: `Hola, acabo de solicitar cotización del producto: ${title}.` });
-        setTimeout(() => socket.disconnect(), 500);
-      } catch {}
-      Alert.alert('Cotización', 'Solicitud enviada.');
-      const targetId = quotationId || (item?.id || item?._id || route.params?.id);
-      navigation.navigate('Perfil' as never, { screen: 'ChatRoom', params: { id: targetId, title: 'Chat' } } as never);
-    } catch (e) {
-      Alert.alert('Error', (e as Error)?.message || 'No se pudo enviar la cotización');
+      // 1) Intentar quick (cotización independiente)
+      const res: any = await QuotationsApi(API).quick([
+        {
+          productId,
+          quantity,
+          color: color.trim() || undefined,
+          size: size.trim() || undefined,
+        },
+      ]);
+      console.log('quick quotation response:', JSON.stringify(res));
+
+      const quotationId: string | undefined = res?.quotation?._id || res?.quotation?.id || res?._id || res?.id;
+      Alert.alert(
+        '✓ Cotización solicitada',
+        quotationId
+          ? `Hemos recibido tu solicitud. ID: ${quotationId}`
+          : 'Hemos recibido tu solicitud. El equipo te contactará pronto con los precios.',
+        [{ text: 'Aceptar', onPress: () => navigation.goBack() }],
+      );
+    } catch (e: any) {
+      const status = e?.status;
+      const message = e?.message || '';
+      console.log('quick failed:', { status, message });
+
+      // 2) Fallback si es 500 (no implementado) o 401/403 (solo admin)
+      if (status === 500 || status === 401 || status === 403) {
+        usedFallback = true;
+        try {
+          console.log('Fallback: usando flujo del carrito');
+          // Agregar al carrito - backend exige color obligatorio
+          const payload = {
+            productId,
+            quantity,
+            color: color.trim() || 'Sin color', // Backend exige color obligatorio
+            size: size.trim() || '', // Size opcional
+          };
+          console.log('Sending payload:', JSON.stringify(payload));
+
+          await QuotationsApi(API).addItemToCart(payload);
+
+          const cartRes: any = await QuotationsApi(API).getCart();
+          const cartId: string = cartRes?.cart?._id || cartRes?.cart?.id || cartRes?._id || cartRes?.id || '';
+          if (!cartId) throw new Error('No se pudo obtener el ID del carrito');
+
+          // Enviar cotización del carrito
+          try {
+            await QuotationsApi(API).submit(cartId);
+          } catch (submitErr: any) {
+            console.log('Submit failed:', submitErr?.message, 'status:', submitErr?.status);
+            submitErr.step = 'submit-cart';
+            throw submitErr;
+          }
+
+          Alert.alert(
+            '✓ Cotización solicitada',
+            'El producto se agregó al carrito y se envió la cotización. El equipo te contactará pronto.',
+            [{ text: 'Aceptar', onPress: () => navigation.goBack() }],
+          );
+        } catch (fallbackErr: any) {
+          console.log('Fallback failed:', fallbackErr?.message, 'status:', fallbackErr?.status);
+          const errStep = fallbackErr?.step || 'desconocido';
+          Alert.alert(
+            'Error',
+            `No se pudo crear la cotización. Paso que falló: ${errStep}. Detalles: ${fallbackErr?.message || 'Error desconocido'}`,
+          );
+        }
+      } else {
+        // Otro error (red, 400, etc.)
+        Alert.alert('Error', formatErr(e));
+      }
+    } finally {
+      setLoadingQuote(false);
     }
   }
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 24 }}>
-      <FloatingCartButton top={10} left={10} />
-      <View style={styles.headerRow}>
-        <Text style={styles.headerTitle}>{item?.title ?? item?.name ?? 'Mueble de dos puestos'}</Text>
-        <View style={{ flexDirection: 'row', gap: 12 }}>
-          <Ionicons name="share-outline" size={20} color="#6b4028" />
-          <Ionicons name="bookmark-outline" size={20} color="#6b4028" />
+    <ScrollView
+      style={[styles.container, { backgroundColor: theme.colors.background }]}
+      contentContainerStyle={{ paddingBottom: 40 }}
+      showsVerticalScrollIndicator={false}
+    >
+      {/* ── Imagen principal ── */}
+      {imageUrl ? (
+        <Image source={{ uri: imageUrl }} style={styles.mainImage} resizeMode="cover" />
+      ) : (
+        <View style={[styles.imagePlaceholder, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}>
+          <Ionicons name="image-outline" size={56} color={theme.colors.muted} />
+        </View>
+      )}
+
+      {/* ── Info del producto ── */}
+      <View style={styles.infoBlock}>
+        <Text style={[styles.productName, { color: theme.colors.text }]}>{productName}</Text>
+        {!!categoryName && (
+          <Text style={[styles.categoryBadge, { color: theme.colors.muted }]}>{categoryName}</Text>
+        )}
+      </View>
+
+      {/* ── Descripción ── */}
+      {!!descriptionText && (
+        <View style={[styles.section, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}>
+          <Text style={[styles.sectionLabel, { color: theme.colors.muted }]}>Descripción</Text>
+          <Text style={[styles.paragraph, { color: theme.colors.text }]}>{descriptionText}</Text>
+        </View>
+      )}
+
+      {/* ── Personalización ── */}
+      <View style={[styles.section, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}>
+        <Text style={[styles.sectionLabel, { color: theme.colors.muted }]}>Personalización</Text>
+
+        <Text style={[styles.inputLabel, { color: theme.colors.text }]}>Color (opcional)</Text>
+        <TextInput
+          style={[styles.input, { backgroundColor: theme.colors.background, borderColor: theme.colors.border, color: theme.colors.text }]}
+          placeholder="Ej: Caoba, Nogal, Blanco..."
+          placeholderTextColor={theme.colors.muted}
+          value={color}
+          onChangeText={setColor}
+          returnKeyType="next"
+        />
+
+        <Text style={[styles.inputLabel, { color: theme.colors.text, marginTop: 12 }]}>Medida / Talla (opcional)</Text>
+        <TextInput
+          style={[styles.input, { backgroundColor: theme.colors.background, borderColor: theme.colors.border, color: theme.colors.text }]}
+          placeholder="Ej: 2m x 1m, Mediano, Grande..."
+          placeholderTextColor={theme.colors.muted}
+          value={size}
+          onChangeText={setSize}
+          returnKeyType="done"
+        />
+      </View>
+
+      {/* ── Cantidad ── */}
+      <View style={[styles.section, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}>
+        <Text style={[styles.sectionLabel, { color: theme.colors.muted }]}>Cantidad</Text>
+        <View style={styles.qtyRow}>
+          <TouchableOpacity
+            style={[styles.qtyBtn, { backgroundColor: theme.colors.background, borderColor: theme.colors.border }]}
+            onPress={() => setQuantity((q) => Math.max(1, q - 1))}
+          >
+            <Ionicons name="remove" size={20} color={theme.colors.text} />
+          </TouchableOpacity>
+          <Text style={[styles.qtyValue, { color: theme.colors.text }]}>{quantity}</Text>
+          <TouchableOpacity
+            style={[styles.qtyBtn, { backgroundColor: theme.colors.background, borderColor: theme.colors.border }]}
+            onPress={() => setQuantity((q) => q + 1)}
+          >
+            <Ionicons name="add" size={20} color={theme.colors.text} />
+          </TouchableOpacity>
         </View>
       </View>
 
-      <View style={styles.gallery}>
-        {[0, 1, 2, 3].map((i) => (
-          <Image
-            key={i}
-            source={{ uri: item?.image || item?.featuredImage || (Array.isArray(item?.images) ? item.images[0] : undefined) || 'https://images.unsplash.com/photo-1501045661006-fcebe0257c3f?q=80&w=1200&auto=format&fit=crop' }}
-            style={styles.galleryImage}
-          />
-        ))}
-      </View>
-
-      <Text style={styles.title}>{item?.title ?? item?.name ?? 'Mueble de dos puestos'}</Text>
-      <Text style={styles.subtitle}>{item?.material ?? item?.category?.name ?? 'Cuero · cuerina'}</Text>
-
-      <View style={styles.colorsRow}>
-        {['#000', '#e52b2b', '#5b53ff', '#8b5d3c', '#cbb6a0'].map((c) => (
-          <View key={c} style={[styles.colorDot, { backgroundColor: c }]} />
-        ))}
-      </View>
-
-      <Text style={styles.sectionTitle}>Descripción:</Text>
-      <Text style={styles.paragraph}>
-        Este elegante sillón de dos puestos, con una longitud de 2.5 metros, es ideal para salas amplias y
-        espacios compartidos. Su diseño contemporáneo combina líneas limpias con una estructura robusta,
-        ofreciendo una experiencia de confort superior. Perfecto para descansar, recibir visitas o
-        complementar la decoración de tu hogar.
-      </Text>
-
-      <Text style={styles.sectionTitle}>Características:</Text>
-      <View style={styles.featureRow}>
-        <Ionicons name="checkmark-circle" size={18} color="#2aae53" />
-        <Text style={styles.featureText}>Medida de 2.5 metros</Text>
-      </View>
-      <View style={styles.featureRow}>
-        <Ionicons name="checkmark-circle" size={18} color="#2aae53" />
-        <Text style={styles.featureText}>Varios Tipos de tela</Text>
-      </View>
-      <View style={styles.featureRow}>
-        <Ionicons name="checkmark-circle" size={18} color="#2aae53" />
-        <Text style={styles.featureText}>Incluye 3 cojines</Text>
-      </View>
-
-      <View style={{ flexDirection: 'row', gap: 10 }}>
-        <TouchableOpacity style={[styles.cta, { flex: 1 }]} onPress={addToCart}>
-          <Ionicons name="cart-outline" size={16} color="#fff" />
-          <Text style={styles.ctaText}>Añadir al carrito</Text>
+      {/* ── Botones de acción ── */}
+      <View style={styles.actionsRow}>
+        <TouchableOpacity
+          style={[styles.btnPrimary, (loadingCart || loadingQuote) && styles.btnDisabled]}
+          onPress={addToCart}
+          disabled={loadingCart || loadingQuote}
+          activeOpacity={0.85}
+        >
+          {loadingCart
+            ? <ActivityIndicator size="small" color="#fff" />
+            : <Ionicons name="cart-outline" size={19} color="#fff" />}
+          <Text style={styles.btnPrimaryText}>Añadir al carrito</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={[styles.ctaSecondary, { flex: 1 }]} onPress={quickQuote}>
-          <Ionicons name="pricetag-outline" size={16} color="#6b4028" />
-          <Text style={[styles.ctaText, { color: '#6b4028' }]}>Cotizar</Text>
+
+        <TouchableOpacity
+          style={[styles.btnSecondary, { borderColor: theme.colors.primary }, (loadingCart || loadingQuote) && styles.btnDisabled]}
+          onPress={requestQuote}
+          disabled={loadingCart || loadingQuote}
+          activeOpacity={0.85}
+        >
+          {loadingQuote
+            ? <ActivityIndicator size="small" color={theme.colors.primary} />
+            : <Ionicons name="pricetag-outline" size={19} color={theme.colors.primary} />}
+          <Text style={[styles.btnSecondaryText, { color: theme.colors.primary }]}>Solicitar cotización</Text>
         </TouchableOpacity>
       </View>
     </ScrollView>
   );
 }
 
-const BROWN = '#6b4028';
-
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#fff', paddingHorizontal: 20, paddingTop: 12 },
-  headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
-  headerTitle: { fontWeight: '700', color: '#222' },
-  gallery: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 14 },
-  galleryImage: { width: '48%', height: 90, borderRadius: 8 },
-  title: { fontSize: 18, fontWeight: '800', marginBottom: 4 },
-  subtitle: { color: '#7f6f62', marginBottom: 10 },
-  colorsRow: { flexDirection: 'row', gap: 12, marginBottom: 14 },
-  colorDot: { width: 20, height: 20, borderRadius: 12, borderWidth: 1, borderColor: '#eee' },
-  sectionTitle: { fontSize: 16, fontWeight: '800', marginTop: 6, marginBottom: 8 },
-  paragraph: { color: '#52483f', lineHeight: 18 },
-  featureRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8 },
-  featureText: { color: '#52483f' },
-  cta: {
-    marginTop: 18,
-    backgroundColor: BROWN,
-    paddingVertical: 12,
-    borderRadius: 14,
-    alignItems: 'center',
-    flexDirection: 'row',
-    justifyContent: 'center',
-    gap: 8,
-  },
-  ctaText: { color: '#fff', fontWeight: '800' },
-  ctaSecondary: {
-    marginTop: 18,
-    backgroundColor: '#efe7e2',
-    paddingVertical: 12,
-    borderRadius: 14,
-    alignItems: 'center',
-    flexDirection: 'row',
-    justifyContent: 'center',
-    gap: 8,
+  container: { flex: 1 },
+  mainImage: { width: '100%', height: 280 },
+  imagePlaceholder: {
+    margin: 16,
+    height: 200,
+    borderRadius: 16,
     borderWidth: 1,
-    borderColor: '#e6ded8',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
+
+  infoBlock: { paddingHorizontal: 20, paddingTop: 18, paddingBottom: 4 },
+  productName: { fontSize: 24, fontWeight: '800', marginBottom: 4 },
+  categoryBadge: { fontSize: 13, fontWeight: '500' },
+
+  section: {
+    marginHorizontal: 16,
+    marginTop: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+    padding: 16,
+  },
+  sectionLabel: { fontSize: 11, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 10 },
+  paragraph: { fontSize: 14, lineHeight: 22 },
+
+  inputLabel: { fontSize: 13, fontWeight: '600', marginBottom: 6 },
+  input: {
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 14,
+  },
+
+  qtyRow: { flexDirection: 'row', alignItems: 'center', gap: 20 },
+  qtyBtn: { width: 40, height: 40, borderRadius: 10, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  qtyValue: { fontSize: 22, fontWeight: '800', minWidth: 32, textAlign: 'center' },
+
+  actionsRow: { marginHorizontal: 16, marginTop: 20, gap: 12 },
+  btnPrimary: {
+    backgroundColor: BROWN,
+    borderRadius: 14,
+    paddingVertical: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  btnPrimaryText: { color: '#fff', fontWeight: '800', fontSize: 15 },
+  btnSecondary: {
+    borderRadius: 14,
+    paddingVertical: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    borderWidth: 1.5,
+  },
+  btnSecondaryText: { fontWeight: '800', fontSize: 15 },
+  btnDisabled: { opacity: 0.5 },
 });
 
 

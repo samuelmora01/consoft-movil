@@ -40,8 +40,11 @@ export default function ChatListScreen() {
         contentContainerStyle={{ padding: 16 }}
         ItemSeparatorComponent={() => <View style={{ height: 10 }} />}
         renderItem={({ item }) => (
-          <TouchableOpacity style={[styles.item, { borderColor: '#E5E7EB' }]} onPress={() => navigation.navigate('ChatRoom', { id: item.id, title: item.title })}>
-            <Text style={styles.title}>{item.title}</Text>
+          <TouchableOpacity
+            style={[styles.item, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}
+            onPress={() => navigation.navigate('ChatRoom', { id: item.id, title: item.title })}
+          >
+            <Text style={[styles.title, { color: theme.colors.text }]}>{item.title}</Text>
           </TouchableOpacity>
         )}
       />
@@ -51,8 +54,8 @@ export default function ChatListScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  item: { padding: 14, borderRadius: 12, borderWidth: 1, backgroundColor: '#fff' },
-  title: { fontWeight: '700', color: '#111827' },
+  item: { padding: 14, borderRadius: 12, borderWidth: 1 },
+  title: { fontWeight: '700' },
 });
 
 

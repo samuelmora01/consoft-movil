@@ -10,15 +10,12 @@ import CustomerNavigator from './src/navigation/CustomerNavigator';
 import { ToastProvider } from './src/ui/ToastProvider';
 import { API } from './src/config';
 import { AuthApi } from './src/api/client';
-import { useAppStore } from './src/store/appStore';
 import { useToast } from './src/ui/ToastProvider';
 import { createSocket } from './src/realtime/socket';
 import { listAdminConversations, listDmConversations } from './src/features/chat/chatService';
 
 function NavigationRoot() {
   const { theme } = useTheme();
-  const seedAppointments = useAppStore((s) => s.seedAppointments);
-  const hasAppointments = useAppStore((s) => s.appointments.length > 0);
   const [useCustomer, setUseCustomer] = useState(false);
   const [bootstrapped, setBootstrapped] = useState(false);
   const signIn = useAppStore((s) => s.signIn);
@@ -32,9 +29,6 @@ function NavigationRoot() {
       if (path.startsWith('/customer')) {
         setUseCustomer(true);
       }
-    }
-    if (!hasAppointments) {
-      try { seedAppointments(6); } catch {}
     }
   }, []);
   useEffect(() => {
@@ -118,7 +112,7 @@ function NavigationRoot() {
 
 export default function App() {
   return (
-    <ThemeProvider initialTheme={lightTheme}>
+    <ThemeProvider initialTheme={darkTheme}>
       <SafeAreaProvider>
         <ToastProvider>
           <StatusBar style="auto" />

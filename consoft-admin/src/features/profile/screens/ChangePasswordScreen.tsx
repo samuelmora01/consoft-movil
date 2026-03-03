@@ -21,7 +21,7 @@ export default function ChangePasswordScreen() {
       setSaving(true);
       if (!API) throw new Error('Configura API');
       await AuthApi(API).changePassword(currentPwd, newPwd);
-      Alert.alert('Contraseña actualizada', 'Tu contraseña fue actualizada correctamente.');
+    Alert.alert('Contraseña actualizada', 'Tu contraseña fue actualizada correctamente.');
       setCurrentPwd('');
       setNewPwd('');
       setConfirmPwd('');

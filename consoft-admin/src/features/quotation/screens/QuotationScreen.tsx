@@ -27,6 +27,9 @@ export default function QuotationScreen() {
   const [clientLoading, setClientLoading] = React.useState(false);
   const clientDebounceRef = React.useRef<NodeJS.Timeout | null>(null);
   const [selectedClientId, setSelectedClientId] = React.useState<string | null>(null);
+  const [clientError, setClientError] = React.useState<string | null>(null);
+  const [allUsers, setAllUsers] = React.useState<Array<{ id: string; name: string; email: string }>>([]);
+  const hasLoadedAllRef = React.useRef(false);
   const [orderAddress, setOrderAddress] = React.useState('');
   const [draftItems, setDraftItems] = React.useState<Array<{ id: string; name: string; price: number; observations?: string }>>([]);
   const [draftDeliveryISO, setDraftDeliveryISO] = React.useState<string | undefined>(undefined);
@@ -41,10 +44,30 @@ export default function QuotationScreen() {
   // Si llega documentId, editamos; si no, trabajamos en memoria hasta finalizar
   const docIdParam = route.params?.documentId as string | undefined;
   const doc = React.useMemo(() => documents.find((d) => d.id === docIdParam), [documents, docIdParam]);
+  const isEditing = !!docIdParam;
+
+  React.useEffect(() => {
+    if (doc && (!clientQuery || !clientEmail)) {
+      setClientName(doc.clientName || '');
+      // @ts-expect-error optional email on doc
+      setClientEmail(doc.clientEmail || '');
+      setClientQuery(doc.clientName || '');
+      // @ts-expect-error id type
+      setSelectedClientId(doc.clientId as any);
+    }
+  }, [doc]);
 
   const addService = () => {
-    const parsed = Number(price.replace(/[^0-9.]/g, '')) || 0;
-    if (parsed <= 0) return;
+    // No permitir negativos ni cero
+    if (/-/.test(price)) {
+      toast.show('El valor debe ser mayor a 0', 'error');
+      return;
+    }
+    const parsed = Number(price.replace(/[^0-9]/g, '')) || 0;
+    if (parsed <= 0) {
+      toast.show('El valor debe ser mayor a 0', 'error');
+      return;
+    }
     const nextName = name && name.trim().length > 0 ? name.trim() : `Servicio #${Math.floor(Math.random()*1000)}`;
     if (doc) {
       addItemToDocument(doc.id, { name: nextName, price: parsed, observations: observation });
@@ -65,38 +88,62 @@ export default function QuotationScreen() {
   const total = (itemsToShow ?? []).reduce((sum, s) => sum + s.price, 0);
 
   // No image picking on creation screen
+  async function loadAllUsersIfNeeded() {
+    if (hasLoadedAllRef.current || !API) return;
+    try {
+      setClientLoading(true);
+      setClientError(null);
+      const res = await UsersApi(API).search('');
+      const r: any = res as any;
+      const list: any =
+        r?.users ??
+        r?.results ??
+        r?.items ??
+        r?.data?.users ??
+        r?.data?.results ??
+        (Array.isArray(r) ? r : []);
+      const mapped = (list as any[]).map((u: any) => ({
+        id: u._id || u.id,
+        name: u.name || [u.firstName, u.lastName].filter(Boolean).join(' '),
+        email: u.email,
+      }));
+      setAllUsers(mapped);
+      hasLoadedAllRef.current = true;
+    } catch (e) {
+      const msg = (e as Error)?.message || null;
+      setClientError(msg);
+    } finally {
+      setClientLoading(false);
+    }
+  }
+
   React.useEffect(() => {
     if (clientDebounceRef.current) {
       clearTimeout(clientDebounceRef.current);
       clientDebounceRef.current = null;
     }
     const q = clientQuery.trim();
-    if (q.length < 2) {
-      setClientOptions([]);
-      return;
-    }
     clientDebounceRef.current = setTimeout(async () => {
       try {
-        if (!API) return;
-        setClientLoading(true);
-        const res = await UsersApi(API).search(q);
-        const list = (res as any).users || [];
         const lowered = q.toLowerCase();
-        const mapped = list.map((u: any) => ({ id: u._id || u.id, name: u.name, email: u.email }));
-        const filtered = mapped.filter((u: any) => {
+        await loadAllUsersIfNeeded();
+        const filtered = (allUsers || []).filter((u: any) => {
           const nameOk = (u.name || '').toLowerCase().includes(lowered);
           const emailOk = (u.email || '').toLowerCase().includes(lowered);
           return nameOk || emailOk;
         });
         setClientOptions(filtered);
         setShowClientDropdown(true);
-      } catch {
-        // ignore
+      } catch (e) {
+        const msg = (e as Error)?.message || null;
+        setClientError(msg);
+        setClientOptions([]);
+        setShowClientDropdown(true);
       } finally {
         setClientLoading(false);
       }
     }, 250);
-  }, [clientQuery]);
+  }, [clientQuery, allUsers]);
 
   return (
     <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
@@ -112,36 +159,69 @@ export default function QuotationScreen() {
         <TextInput
           placeholder="Nombre del cliente (busca y selecciona)"
           value={clientQuery}
-          onChangeText={(t) => { setClientQuery(t); setShowClientDropdown(true); }}
-          onFocus={() => setShowClientDropdown((clientOptions.length ?? 0) > 0)}
+          onChangeText={(t) => { if (!isEditing) { setClientQuery(t); setShowClientDropdown(true); } }}
+          onFocus={() => { if (!isEditing) { setShowClientDropdown(true); loadAllUsersIfNeeded(); } }}
           placeholderTextColor={theme.colors.muted}
-          style={[styles.input, { borderColor: theme.colors.border, color: theme.colors.text, padding: moderateScale(12), borderRadius: theme.radius }]}
+          style={[
+            styles.input,
+            {
+              borderColor: theme.colors.border,
+              color: isEditing ? theme.colors.muted : theme.colors.text,
+              backgroundColor: isEditing ? theme.colors.border : theme.colors.card,
+              padding: moderateScale(12),
+              borderRadius: theme.radius,
+            },
+          ]}
+          editable={!isEditing}
         />
-        {showClientDropdown && (clientOptions.length > 0 || clientLoading) ? (
+        {showClientDropdown && !isEditing ? (
           <View style={{ borderWidth: 1, borderColor: theme.colors.border, borderRadius: theme.radius, marginTop: -8, backgroundColor: theme.colors.card }}>
             {clientLoading ? (
               <View style={{ padding: 12 }}><Text style={{ color: theme.colors.muted }}>Buscando...</Text></View>
-            ) : clientOptions.map((u) => (
-              <TouchableOpacity
-                key={u.id}
-                onPress={() => {
-                  setClientName(u.name);
-                  setClientEmail(u.email);
-                  setClientQuery(u.name);
-                  setSelectedClientId(u.id);
-                  setShowClientDropdown(false);
-                }}
-                style={{ paddingVertical: 10, paddingHorizontal: 12, borderBottomWidth: 1, borderBottomColor: theme.colors.border }}
-              >
-                <Text style={{ color: theme.colors.text, fontWeight: '700' }}>{u.name}</Text>
-                <Text style={{ color: theme.colors.muted, fontSize: responsiveFontSize(11) }}>{u.email}</Text>
-              </TouchableOpacity>
-            ))}
+            ) : clientError ? (
+              <View style={{ padding: 12 }}><Text style={{ color: theme.colors.muted }}>Error: {clientError}</Text></View>
+            ) : clientOptions.length > 0 ? (
+              clientOptions.map((u) => (
+                <TouchableOpacity
+                  key={u.id}
+                  onPress={() => {
+                    setClientName(u.name);
+                    setClientEmail(u.email);
+                    setClientQuery(u.name);
+                    setSelectedClientId(u.id);
+                    setShowClientDropdown(false);
+                  }}
+                  style={{ paddingVertical: 10, paddingHorizontal: 12, borderBottomWidth: 1, borderBottomColor: theme.colors.border }}
+                >
+                  <Text style={{ color: theme.colors.text, fontWeight: '700' }}>{u.name}</Text>
+                  <Text style={{ color: theme.colors.muted, fontSize: responsiveFontSize(11) }}>{u.email}</Text>
+                </TouchableOpacity>
+              ))
+            ) : (
+              <View style={{ padding: 12 }}><Text style={{ color: theme.colors.muted }}>{clientQuery.trim().length ? 'Sin resultados' : 'Escribe para buscar o selecciona'}</Text></View>
+            )}
           </View>
         ) : null}
       </View>
       <Text style={{ color: theme.colors.muted, marginBottom: 8, fontSize: responsiveFontSize(12) }}>Correo</Text>
-      <TextInput placeholder="correo@correo" value={clientEmail} onChangeText={setClientEmail} keyboardType="email-address" placeholderTextColor={theme.colors.muted} style={[styles.input, { borderColor: theme.colors.border, color: theme.colors.text, padding: moderateScale(12), borderRadius: theme.radius }]} />
+      <TextInput
+        placeholder="correo@correo"
+        value={clientEmail}
+        onChangeText={(t) => { if (!isEditing) setClientEmail(t); }}
+        keyboardType="email-address"
+        placeholderTextColor={theme.colors.muted}
+        style={[
+          styles.input,
+          {
+            borderColor: theme.colors.border,
+            color: isEditing ? theme.colors.muted : theme.colors.text,
+            backgroundColor: isEditing ? theme.colors.border : theme.colors.card,
+            padding: moderateScale(12),
+            borderRadius: theme.radius,
+          },
+        ]}
+        editable={!isEditing}
+      />
       <Text style={{ color: theme.colors.muted, marginBottom: 8, marginTop: 6, fontSize: responsiveFontSize(12) }}>Dirección</Text>
       <TextInput placeholder="Calle 123 #45-67, Ciudad" value={orderAddress} onChangeText={setOrderAddress} placeholderTextColor={theme.colors.muted} style={[styles.input, { borderColor: theme.colors.border, color: theme.colors.text, padding: moderateScale(12), borderRadius: theme.radius }]} />
 
@@ -196,7 +276,7 @@ export default function QuotationScreen() {
             if (!API) throw new Error('Configura API');
             await OrdersApi(API).createForUser(payload);
             toast.show('Pedido creado', 'success');
-            navigation.goBack();
+          navigation.goBack();
           } catch (e) {
             toast.show((e as Error)?.message || 'No se pudo crear el pedido', 'error');
           }
@@ -213,7 +293,18 @@ export default function QuotationScreen() {
               <View style={styles.sheetHandle} />
               <Text style={[styles.modalTitle, { color: theme.colors.text, fontSize: responsiveFontSize(16) }]}>Servicio</Text>
               <TextInput value={name} onChangeText={setName} placeholder="Nombre del servicio" placeholderTextColor={theme.colors.muted} style={[styles.input, { borderColor: theme.colors.border, color: theme.colors.text, padding: moderateScale(12), borderRadius: theme.radius }]} />
-              <TextInput value={price} onChangeText={setPrice} placeholder="Valor" keyboardType="numeric" placeholderTextColor={theme.colors.muted} style={[styles.input, { borderColor: theme.colors.border, color: theme.colors.text, padding: moderateScale(12), borderRadius: theme.radius }]} />
+              <TextInput
+                value={price}
+                onChangeText={(t) => {
+                  // bloquear signo negativo y caracteres no numéricos
+                  const sanitized = t.replace(/[^0-9]/g, '');
+                  setPrice(sanitized);
+                }}
+                placeholder="Valor"
+                keyboardType="numeric"
+                placeholderTextColor={theme.colors.muted}
+                style={[styles.input, { borderColor: theme.colors.border, color: theme.colors.text, padding: moderateScale(12), borderRadius: theme.radius }]}
+              />
               <TextInput value={observation} onChangeText={setObservation} placeholder="Observación (opcional)" placeholderTextColor={theme.colors.muted} style={[styles.input, { borderColor: theme.colors.border, color: theme.colors.text, padding: moderateScale(12), borderRadius: theme.radius }]} />
               <View style={{ flexDirection: 'row', gap: 12 }}>
                 <TouchableOpacity style={[styles.modalBtn, { borderColor: theme.colors.border, borderRadius: theme.radius, paddingVertical: moderateScale(12), paddingHorizontal: moderateScale(16) }]} onPress={() => setModalVisible(false)}>

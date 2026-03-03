@@ -12,22 +12,23 @@ export default function ChatListScreen() {
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const clearUnread = useAppStore((s) => s.clearChatUnread);
-  useEffect(() => {
-    (async () => {
-      try {
-        setLoading(true);
-        const [orders, dms] = await Promise.all([listAdminConversations(), listDmConversations()]);
-        setItems([...dms, ...orders]);
-        setError(null);
-      } catch (e) {
-        setError((e as Error)?.message || 'No se pudo cargar los chats');
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, []);
+  async function loadChats() {
+    try {
+      setLoading(true);
+      // Un solo chat por usuario: listAdminConversations ya devuelve rooms dm:<email>
+      const onePerUser = await listAdminConversations();
+      setItems(onePerUser);
+      setError(null);
+    } catch (e) {
+      setError((e as Error)?.message || 'No se pudo cargar los chats');
+    } finally {
+      setLoading(false);
+    }
+  }
+  useEffect(() => { loadChats(); }, []);
   useFocusEffect(
     React.useCallback(() => {
+      loadChats();
       clearUnread();
       return () => {};
     }, [clearUnread])

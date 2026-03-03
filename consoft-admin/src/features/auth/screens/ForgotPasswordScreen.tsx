@@ -23,8 +23,15 @@ export default function ForgotPasswordScreen() {
       show('Te enviamos un correo con instrucciones', 'success');
       navigation.goBack();
     } catch (e) {
-      const msg = (e as Error)?.message || 'No pudimos enviar el correo';
-      show(msg, 'error');
+      const raw = (e as Error)?.message || 'No pudimos enviar el correo';
+      const low = raw.toLowerCase();
+      const notFound =
+        low.includes('404') ||
+        low.includes('no registrado') ||
+        low.includes('not found') ||
+        low.includes('usuario no existe') ||
+        low.includes('email') && low.includes('no') && low.includes('existe');
+      show(notFound ? 'El correo no está registrado' : raw, 'error');
     } finally {
       setLoading(false);
     }

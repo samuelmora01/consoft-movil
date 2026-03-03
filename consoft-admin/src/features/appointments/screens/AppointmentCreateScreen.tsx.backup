@@ -1,0 +1,254 @@
+import React, { useState, useMemo, useEffect, useRef } from 'react';
+import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, Platform } from 'react-native';
+import { useTheme } from '../../../theme/theme';
+import { responsiveFontSize, moderateScale, verticalScale, scale } from '../../../theme/responsive';
+import DateTimePicker from '@react-native-community/datetimepicker';
+import AppointmentMap from '../components/AppointmentMap';
+import { useNavigation } from '@react-navigation/native';
+import { useAppStore } from '../../../store/appStore';
+import { API } from '../../../config';
+import { UsersApi } from '../../../api/client';
+import { useToast } from '../../../ui/ToastProvider';
+
+function generateMonthMatrix(year: number, monthIndex: number) {
+  const firstDay = new Date(year, monthIndex, 1);
+  const startWeekday = firstDay.getDay();
+  const numDays = new Date(year, monthIndex + 1, 0).getDate();
+  const weeks: Array<Array<{ d: number | null; date?: Date }>> = [];
+  let week: Array<{ d: number | null; date?: Date }> = [];
+  for (let i = 0; i < startWeekday; i += 1) week.push({ d: null });
+  for (let day = 1; day <= numDays; day += 1) {
+    const date = new Date(year, monthIndex, day);
+    week.push({ d: day, date });
+    if (week.length === 7) { weeks.push(week); week = []; }
+  }
+  if (week.length > 0) {
+    while (week.length < 7) week.push({ d: null });
+    weeks.push(week);
+  }
+  return weeks;
+}
+
+const WEEKDAYS = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+
+export default function AppointmentCreateScreen() {
+  const { theme } = useTheme();
+  const navigation = useNavigation<any>();
+  const toast = useToast();
+  
+  // Cliente
+  const [clientQuery, setClientQuery] = useState('');
+  const [clientOptions, setClientOptions] = useState<Array<{ id: string; name: string; email: string }>>([]);
+  const [clientLoading, setClientLoading] = useState(false);
+  const [showClientDropdown, setShowClientDropdown] = useState(false);
+  const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
+  const [selectedClientName, setSelectedClientName] = useState('');
+  const clientDebounceRef = useRef<NodeJS.Timeout | null>(null);
+  const [clientError, setClientError] = useState<string | null>(null);
+  const [allUsers, setAllUsers] = useState<Array<{ id: string; name: string; email: string }>>([]);
+  const hasLoadedAllRef = useRef(false);
+  
+  // Dirección y descripción
+  const [address, setAddress] = useState('');
+  const [description, setDescription] = useState('');
+  
+  // Calendario y slots
+  const today = new Date();
+  const [selectedDate, setSelectedDate] = useState<Date | null>(null);
+  const [selectedTime, setSelectedTime] = useState<string>('');
+  const [availableSlots, setAvailableSlots] = useState<string[]>([]);
+  const [loadingSlots, setLoadingSlots] = useState(false);
+  const [monthIndex, setMonthIndex] = useState<number>(today.getMonth());
+  const [year, setYear] = useState<number>(today.getFullYear());
+  const [loading, setLoading] = useState(false);
+
+  const dateLabel = useMemo(() => date.toLocaleDateString('es-ES'), [date]);
+  const timeLabel = useMemo(() => time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), [time]);
+
+  async function loadAllUsersIfNeeded() {
+    if (hasLoadedAllRef.current || !API) return;
+    try {
+      setClientLoading(true);
+      setClientError(null);
+      const res = await UsersApi(API).search('');
+      const r: any = res as any;
+      const list: any =
+        r?.users ??
+        r?.results ??
+        r?.items ??
+        r?.data?.users ??
+        r?.data?.results ??
+        (Array.isArray(r) ? r : []);
+      const mapped = (list as any[]).map((u: any) => ({
+        id: u._id || u.id,
+        name: u.name || [u.firstName, u.lastName].filter(Boolean).join(' '),
+        email: u.email,
+      }));
+      setAllUsers(mapped);
+      hasLoadedAllRef.current = true;
+    } catch (e) {
+      const msg = (e as Error)?.message || null;
+      setClientError(msg);
+    } finally {
+      setClientLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    if (clientDebounceRef.current) {
+      clearTimeout(clientDebounceRef.current);
+      clientDebounceRef.current = null;
+    }
+    const q = clientQuery.trim();
+    clientDebounceRef.current = setTimeout(async () => {
+      try {
+        const lowered = q.toLowerCase();
+        // Ensure we have the full list loaded once
+        await loadAllUsersIfNeeded();
+        let filtered = (allUsers || []).filter((u: any) => {
+          const nameOk = (u.name || '').toLowerCase().includes(lowered);
+          const emailOk = (u.email || '').toLowerCase().includes(lowered);
+          return nameOk || emailOk;
+        });
+        setClientOptions(filtered);
+        setShowClientDropdown(true);
+      } catch (e) {
+        const msg = (e as Error)?.message || null;
+        setClientError(msg);
+        setClientOptions([]);
+        setShowClientDropdown(true);
+      } finally {
+        setClientLoading(false);
+      }
+    }, 250);
+  }, [clientQuery, allUsers]);
+
+  return (
+    <ScrollView
+      style={[styles.container, { backgroundColor: theme.colors.background }]}
+      contentContainerStyle={{ padding: 16, paddingBottom: 32 }}
+      keyboardShouldPersistTaps="handled"
+    >
+      <Text style={[styles.title, { color: theme.colors.text, fontSize: responsiveFontSize(18) }]}>Cita</Text>
+      <View style={[styles.card, { backgroundColor: theme.colors.background, borderColor: theme.colors.border, borderRadius: theme.radius, padding: moderateScale(12) }]}> 
+        <Text style={{ color: theme.colors.muted, fontSize: responsiveFontSize(12) }}>*Nombre y Apellidos</Text>
+        <View>
+          <TextInput
+            value={clientQuery}
+            onChangeText={(t) => { setClientQuery(t); setShowClientDropdown(true); setName(t); }}
+            placeholder="Buscar cliente por nombre"
+            placeholderTextColor={theme.colors.muted}
+            style={[styles.input, { borderColor: theme.colors.border, color: theme.colors.text, backgroundColor: theme.colors.card, borderRadius: theme.radius }]}
+            autoCapitalize="none"
+            autoCorrect={false}
+            onFocus={() => { setShowClientDropdown(true); loadAllUsersIfNeeded(); }}
+          />
+          {showClientDropdown ? (
+            <View style={{ borderWidth: 1, borderColor: theme.colors.border, borderRadius: theme.radius, marginTop: -8, backgroundColor: theme.colors.card, zIndex: 20, elevation: 20, maxHeight: 220, overflow: 'hidden' }}>
+              {clientLoading ? (
+                <View style={{ padding: 12 }}><Text style={{ color: theme.colors.muted }}>Buscando...</Text></View>
+              ) : clientError ? (
+                <View style={{ padding: 12 }}><Text style={{ color: theme.colors.muted }}>Error: {clientError}</Text></View>
+              ) : clientOptions.length > 0 ? (
+                <ScrollView keyboardShouldPersistTaps="handled">
+                  {clientOptions.map((u) => (
+                    <TouchableOpacity
+                      key={u.id}
+                      onPress={() => {
+                        setSelectedClientId(u.id);
+                        setClientQuery(u.name);
+                        setName(u.name);
+                        setShowClientDropdown(false);
+                      }}
+                      style={{ paddingVertical: 10, paddingHorizontal: 12, borderBottomWidth: 1, borderBottomColor: theme.colors.border }}
+                    >
+                      <Text style={{ color: theme.colors.text, fontWeight: '700' }}>{u.name}</Text>
+                      <Text style={{ color: theme.colors.muted, fontSize: responsiveFontSize(11) }}>{u.email}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              ) : (
+                <View style={{ padding: 12 }}><Text style={{ color: theme.colors.muted }}>{clientQuery.trim().length ? 'Sin resultados' : 'Escribe para buscar o selecciona'}</Text></View>
+              )}
+            </View>
+          ) : null}
+        </View>
+        <Text style={{ color: theme.colors.muted, fontSize: responsiveFontSize(12), marginTop: 8 }}>Dirección</Text>
+        <TextInput value={address} onChangeText={setAddress} placeholder="Dirección" placeholderTextColor={theme.colors.muted} style={[styles.input, { borderColor: theme.colors.border, color: theme.colors.text, backgroundColor: theme.colors.card, borderRadius: theme.radius }]} />
+      </View>
+      <View style={[styles.mapContainer, { borderColor: theme.colors.border, backgroundColor: theme.colors.card, borderRadius: theme.radius, height: verticalScale(160) }]}> 
+        <AppointmentMap latitude={location.lat} longitude={location.lon} draggable onChangeLocation={(lon, lat) => setLocation({ lon, lat })} />
+      </View>
+      <Text style={{ color: theme.colors.muted, marginTop: 8, marginBottom: 6, fontSize: responsiveFontSize(12) }}>Fecha y Hora</Text>
+      <View style={[styles.card, { backgroundColor: theme.colors.background, borderColor: theme.colors.border, borderRadius: theme.radius, padding: moderateScale(12) }]}> 
+        <View style={{ flexDirection: 'row', gap: 12 }}>
+          <TouchableOpacity onPress={() => setShowDatePicker(true)} style={[styles.pickerBtn, { borderColor: theme.colors.border }]}>
+            <Text style={{ color: theme.colors.text, fontWeight: '700' }}>{dateLabel}</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={() => setShowTimePicker(true)} style={[styles.pickerBtn, { borderColor: theme.colors.border }]}>
+            <Text style={{ color: theme.colors.text, fontWeight: '700' }}>{timeLabel}</Text>
+          </TouchableOpacity>
+        </View>
+        {showDatePicker && (
+          <DateTimePicker value={date} mode="date" onChange={(_, d) => { setShowDatePicker(false); if (d) setDate(d); }} />
+        )}
+        {showTimePicker && (
+          <DateTimePicker value={time} mode="time" onChange={(_, t) => { setShowTimePicker(false); if (t) setTime(t); }} minuteInterval={5} />
+        )}
+      </View>
+
+      <View style={{ flexDirection: 'row', gap: 12, marginTop: 12 }}>
+        <TouchableOpacity style={[styles.btnGhost, { borderColor: theme.colors.border }]} onPress={() => navigation.goBack()}>
+          <Text style={{ color: theme.colors.text, fontWeight: '700' }}>Cancelar</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.btnFilled, { backgroundColor: theme.colors.primary }]} 
+          onPress={async () => {
+            try {
+            const merged = new Date(date);
+            merged.setHours(time.getHours(), time.getMinutes(), 0, 0);
+              // ISO local sin 'Z' para evitar desfase de UTC
+              const isoLocal = (() => {
+                const off = merged.getTimezoneOffset();
+                const local = new Date(merged.getTime() - off * 60000);
+                return local.toISOString().replace('Z', '');
+              })();
+              if (!selectedClientId) {
+                alert('Selecciona un cliente de la lista');
+                return;
+              }
+              if (!API) throw new Error('Configura API');
+              const { VisitsApi } = await import('../../../api/client');
+              await VisitsApi(API).createForUser({
+                user: selectedClientId,
+                visitDate: isoLocal,
+                address,
+                status: 'pendiente',
+                services: [],
+              });
+              toast.show('Visita creada', 'success');
+            navigation.navigate('AppointmentsHome');
+            } catch (e) {
+              toast.show((e as Error)?.message || 'No se pudo crear la visita', 'error');
+            }
+          }}
+        >
+          <Text style={{ color: '#fff', fontWeight: '700' }}>Confirmar</Text>
+        </TouchableOpacity>
+      </View>
+    </ScrollView>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: { flex: 1 },
+  title: { fontSize: 18, fontWeight: '700', marginBottom: 12 },
+  card: { borderWidth: 1, borderRadius: 12, padding: 12, marginBottom: 12 },
+  input: { borderWidth: 1, padding: 12, borderRadius: 12, marginTop: 6 },
+  mapContainer: { height: 160, borderWidth: 1, borderRadius: 12, overflow: 'hidden', marginBottom: 12 },
+  pickerBtn: { flex: 1, borderWidth: 1, borderRadius: 10, padding: 10, alignItems: 'center' },
+  btnGhost: { flex: 1, borderWidth: 1, borderRadius: 12, alignItems: 'center', paddingVertical: 12 },
+  btnFilled: { flex: 1, borderRadius: 12, alignItems: 'center', paddingVertical: 12 },
+});
+
+

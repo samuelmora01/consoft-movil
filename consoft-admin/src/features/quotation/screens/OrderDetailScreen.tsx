@@ -1,14 +1,17 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
 import { useTheme } from '../../../theme/theme';
 import { useAppStore } from '../../../store/appStore';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { SalesDocument } from '../../../domain/types';
 import * as ImagePicker from 'expo-image-picker';
+import * as FileSystem from 'expo-file-system/legacy';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { useToast } from '../../../ui/ToastProvider';
 import { scale, verticalScale, moderateScale, responsiveFontSize, useDeviceBreakpoints } from '../../../theme/responsive';
+import { API } from '../../../config';
+import { OrdersApi } from '../../../api/client';
 
 export default function OrderDetailScreen() {
   const { theme } = useTheme();
@@ -18,18 +21,53 @@ export default function OrderDetailScreen() {
   const documentId = route.params?.documentId as string;
   const documents = useAppStore((s) => s.documents);
   const updateOrderState = useAppStore((s) => s.updateOrderState);
-  const doc = documents.find((d) => d.id === documentId) as SalesDocument | undefined;
-  if (!doc) {
-    return (
-      <View style={[styles.container, { backgroundColor: theme.colors.background }]}> 
-        <Text style={{ color: theme.colors.text }}>Pedido no encontrado</Text>
-      </View>
-    );
-  }
+  const [remoteDoc, setRemoteDoc] = useState<SalesDocument | undefined>(undefined);
+  const [triedFetch, setTriedFetch] = useState(false);
+  const doc = (documents.find((d) => d.id === documentId) as SalesDocument | undefined) || remoteDoc;
 
-  const { id: documentIdRef, createdAt, orderState: orderStateRaw, images = [], items: docItems = [] } = doc;
-  const items = Array.isArray(docItems) ? docItems : [];
-  const orderState = (orderStateRaw ?? 'PENDING') as 'PENDING' | 'CONFIRMED' | 'CANCELLED';
+  useEffect(() => {
+    (async () => {
+      if (doc || !API || triedFetch) return;
+      setTriedFetch(true);
+      try {
+        const res: any = await OrdersApi(API).get(documentId);
+        if (!res) return;
+        const o: any = res?.order || res;
+        if (!o) return;
+        const mapped: SalesDocument = {
+          id: String(o?._id || o?.id || documentId),
+          clientId: String(o?.user?._id || o?.user?.id || ''),
+          clientName: o?.user?.name || '',
+          clientEmail: o?.user?.email || '',
+          items: (o?.items || []).map((it: any) => ({
+            id: String(it?._id || it?.id || Math.random()),
+            name: it?.detalles || (it?.id_servicio?.name || 'Servicio'),
+            price: Number(it?.valor || 0),
+            observations: it?.detalles,
+          })),
+          status: 'Order' as any,
+          orderState: (o?.paymentStatus || 'PENDING') as any,
+          images: Array.isArray(o?.attachments) ? o.attachments : [],
+          featuredImage: undefined,
+          createdAt: o?.createdAt || new Date().toISOString(),
+          updatedAt: o?.updatedAt || new Date().toISOString(),
+          deliveryDate: o?.deliveryDate,
+        };
+        setRemoteDoc(mapped);
+      } catch {
+        // ignore; doc seguirá undefined y se mostrará "no encontrado"
+      }
+    })();
+  }, [API, documentId, doc, triedFetch]);
+
+  const isLoading = !doc && !triedFetch;
+  const notFound = !doc && triedFetch;
+
+  const documentIdRef = (doc?.id ?? documentId) as string;
+  const createdAt = doc?.createdAt;
+  const images: string[] = Array.isArray(doc?.images) ? (doc?.images as string[]) : [];
+  const items = Array.isArray(doc?.items) ? (doc?.items as any[]) : [];
+  const orderState = ((doc?.orderState as any) ?? 'PENDING') as 'PENDING' | 'CONFIRMED' | 'CANCELLED';
   const orderStateLabel = orderState === 'CONFIRMED' ? 'Confirmado' : orderState === 'CANCELLED' ? 'Cancelado' : 'En proceso';
   const orderStateIcon: React.ComponentProps<typeof Ionicons>['name'] =
     orderState === 'CONFIRMED' ? 'checkmark-circle' : orderState === 'CANCELLED' ? 'close-circle' : 'time';
@@ -38,41 +76,95 @@ export default function OrderDetailScreen() {
   const restante = useMemo(() => Math.max(0, Math.round(total * 0.2)), [total]);
   const { isLargePhone, isTabletLike } = useDeviceBreakpoints();
   const fechaEntrega = useMemo(() => {
-    const src = doc.deliveryDate ?? createdAt ?? new Date().toISOString();
+    const src = (doc as any)?.deliveryDate ?? createdAt ?? new Date().toISOString();
     const base = new Date(src);
     return base.toLocaleDateString('es-ES', { day: 'numeric', month: 'long' });
-  }, [doc.deliveryDate, createdAt]);
+  }, [doc, createdAt]);
 
   // (Reseñas removidas aquí; se gestionan en la pantalla de Reseñas)
 
-  function setImageAtSlot(slot: number, uri: string) {
-    useAppStore.setState((state) => ({
-      documents: state.documents.map((d) => {
-        if (d.id !== documentIdRef) return d;
-        const current = d.images ?? [];
-        const length = Math.max(slot + 1, current.length);
-        const nextImages: string[] = Array.from({ length }, (_, idx) => current[idx] ?? '');
-        nextImages[slot] = uri;
-        return {
-          ...d,
-          images: nextImages,
-          featuredImage: d.featuredImage ?? uri,
-          updatedAt: new Date().toISOString(),
-        };
-      }),
-    }));
+  function setImageAtSlotLocal(slot: number, uri: string) {
+    // actualiza sólo el estado remoto local, para reflejar de inmediato
+    setRemoteDoc((prev) => {
+      const current = prev?.images ?? [];
+      const length = Math.max(slot + 1, current.length);
+      const nextImages: string[] = Array.from({ length }, (_, idx) => current[idx] ?? '');
+      nextImages[slot] = uri;
+      return prev ? { ...prev, images: nextImages, featuredImage: prev.featuredImage ?? uri } : prev;
+    });
   }
 
   async function pickImage(slot: number) {
-    const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.7 });
-    if (!res.canceled && res.assets?.length) {
-      setImageAtSlot(slot, res.assets[0].uri);
+    try {
+      const mediaType: any =
+        // Backward/forward compatible across Expo SDKs
+        (ImagePicker as any).MediaType?.Images ??
+        (ImagePicker as any).MediaTypeOptions?.Images;
+      const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: mediaType, quality: 0.7 });
+      if (res.canceled || !res.assets?.length) return;
+      const asset = res.assets[0];
+      let uploadUri = asset.uri;
+      // iOS: copiar a caché para obtener file://
+      try {
+        const name =
+          (asset as any).fileName ||
+          uploadUri.split('/').pop() ||
+          `img_${Date.now()}.jpg`;
+        const target = `${FileSystem.cacheDirectory}${name}`;
+        await FileSystem.copyAsync({ from: uploadUri, to: target });
+        uploadUri = target;
+      } catch {
+        // si falla copy, intentaremos con la uri original
+      }
+      // Subir al backend
+      if (!API) throw new Error('Configura API');
+      await OrdersApi(API).addAttachments(documentIdRef, [uploadUri]);
+      // Refrescar detalle
+      try {
+        const fetched: any = await OrdersApi(API).get(documentIdRef);
+        const o: any = fetched?.order || fetched;
+        if (o) {
+          const mapped: SalesDocument = {
+            id: String(o?._id || o?.id || documentIdRef),
+            clientId: String(o?.user?._id || o?.user?.id || ''),
+            clientName: o?.user?.name || '',
+            clientEmail: o?.user?.email || '',
+            items: (o?.items || []).map((it: any) => ({
+              id: String(it?._id || it?.id || Math.random()),
+              name: it?.detalles || (it?.id_servicio?.name || 'Servicio'),
+              price: Number(it?.valor || 0),
+              observations: it?.detalles,
+            })),
+            status: 'Order' as any,
+            orderState: (o?.paymentStatus || 'PENDING') as any,
+            images: Array.isArray(o?.attachments) ? o.attachments : [],
+            featuredImage: undefined,
+            createdAt: o?.createdAt || new Date().toISOString(),
+            updatedAt: o?.updatedAt || new Date().toISOString(),
+            deliveryDate: o?.deliveryDate,
+          };
+          setRemoteDoc(mapped);
+        } else {
+          // fallback local inmediato
+          setImageAtSlotLocal(slot, uploadUri);
+        }
+      } catch {
+        setImageAtSlotLocal(slot, uploadUri);
+      }
       toast.show('Imagen añadida', 'success');
+    } catch (e) {
+      toast.show((e as Error)?.message || 'No se pudo subir la imagen', 'error');
     }
   }
 
   return (
     <ScrollView style={[styles.container, { backgroundColor: theme.colors.background }]} contentContainerStyle={{ padding: theme.spacing(isTabletLike ? 3 : 2), paddingBottom: theme.spacing(4) }}>
+      {isLoading ? (
+        <Text style={{ color: theme.colors.text }}>Cargando pedido...</Text>
+      ) : notFound ? (
+        <Text style={{ color: theme.colors.text }}>Pedido no encontrado</Text>
+      ) : (
+        <>
       <View style={[
         styles.statusCard,
         {
@@ -104,8 +196,10 @@ export default function OrderDetailScreen() {
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
           <View style={{ width: scale(56), height: scale(56), borderRadius: theme.radius, backgroundColor: '#D9D9D9' }} />
           <View style={{ flex: 1 }}>
-            <Text style={{ color: theme.colors.text, fontWeight: '700', fontSize: responsiveFontSize(14) }}>{doc.clientName || 'Cliente'}</Text>
-            <Text style={{ color: theme.colors.muted, fontSize: responsiveFontSize(11) }}>Pedidos: 2</Text>
+            <Text style={{ color: theme.colors.text, fontWeight: '700', fontSize: responsiveFontSize(14) }}>{doc?.clientName || 'Cliente'}</Text>
+            {doc?.clientEmail && (
+              <Text style={{ color: theme.colors.muted, fontSize: responsiveFontSize(11) }}>{doc.clientEmail}</Text>
+            )}
           </View>
         </View>
         <View style={{ flexDirection: 'row', gap: 12, marginTop: theme.spacing(1.5) }}>
@@ -124,17 +218,21 @@ export default function OrderDetailScreen() {
         </View>
       </View>
 
-      {/* Imagenes por servicio (dinámico + carrusel con flechas si > 3) */}
-      {items.length > 0 && (
-        <>
+      {/* Imágenes por servicio (si no hay items, mostrará 3 slots vacíos con “añadir”) */}
+      {(() => {
+        const displayItems =
+          items.length > 0
+            ? items
+            : Array.from({ length: 3 }).map((_, i) => ({ id: `placeholder-${i}`, name: '' }));
+        return (
           <CarouselImages
-            items={items}
+            items={displayItems}
             images={images}
             theme={theme}
             pickImage={pickImage}
           />
-        </>
-      )}
+        );
+      })()}
 
       {/* Divider title Detalles */}
       <View style={{ alignItems: 'center', marginTop: theme.spacing(2), marginBottom: theme.spacing(2) }}>
@@ -173,10 +271,51 @@ export default function OrderDetailScreen() {
         <TouchableOpacity style={[styles.primaryGhost, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]} onPress={() => navigation.navigate('OrderEdit', { documentId: documentIdRef })}>
           <Text style={{ color: theme.colors.text, fontWeight: '700' }}>Editar pedido</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={[styles.filledBtn, { backgroundColor: theme.colors.primary }]} onPress={() => { updateOrderState(documentIdRef, (orderState === 'CONFIRMED' ? 'PENDING' : 'CONFIRMED') as any); toast.show('Estado actualizado', 'success'); }}>
+        <TouchableOpacity
+          style={[styles.filledBtn, { backgroundColor: theme.colors.primary }]}
+          onPress={async () => {
+            try {
+              if (!API) throw new Error('Configura API');
+              const next = orderState === 'CONFIRMED' ? 'en_proceso' : 'confirmado';
+              await OrdersApi(API).updateStatus(documentIdRef, next);
+              // refrescar
+              try {
+                const fetched: any = await OrdersApi(API).get(documentIdRef);
+                const o: any = fetched?.order || fetched;
+                if (o) {
+                  const mapped: SalesDocument = {
+                    id: String(o?._id || o?.id || documentIdRef),
+                    clientId: String(o?.user?._id || o?.user?.id || ''),
+                    clientName: o?.user?.name || '',
+                    clientEmail: o?.user?.email || '',
+                    items: (o?.items || []).map((it: any) => ({
+                      id: String(it?._id || it?.id || Math.random()),
+                      name: it?.detalles || (it?.id_servicio?.name || 'Servicio'),
+                      price: Number(it?.valor || 0),
+                      observations: it?.detalles,
+                    })),
+                    status: 'Order' as any,
+                    orderState: (o?.paymentStatus || (o?.status === 'confirmado' ? 'CONFIRMED' : 'PENDING')) as any,
+                    images: Array.isArray(o?.attachments) ? o.attachments : [],
+                    featuredImage: undefined,
+                    createdAt: o?.createdAt || new Date().toISOString(),
+                    updatedAt: o?.updatedAt || new Date().toISOString(),
+                    deliveryDate: o?.deliveryDate,
+                  };
+                  setRemoteDoc(mapped);
+                }
+              } catch {}
+              toast.show('Estado actualizado', 'success');
+            } catch (e) {
+              toast.show((e as Error)?.message || 'No se pudo cambiar el estado', 'error');
+            }
+          }}
+        >
           <Text style={{ color: '#fff', fontWeight: '700' }}>Cambiar Estado</Text>
         </TouchableOpacity>
       </View>
+        </>
+      )}
     </ScrollView>
   );
 }

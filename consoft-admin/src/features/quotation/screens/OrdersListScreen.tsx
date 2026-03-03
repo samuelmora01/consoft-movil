@@ -1,25 +1,103 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useCallback } from 'react';
 import { View, Text, StyleSheet, TextInput, TouchableOpacity, FlatList } from 'react-native';
 import { useTheme } from '../../../theme/theme';
 import { useAppStore } from '../../../store/appStore';
 import { SalesDocument, OrderState } from '../../../domain/types';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { Image } from 'expo-image';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { scale, verticalScale, moderateScale, responsiveFontSize } from '../../../theme/responsive';
+import { API } from '../../../config';
+import { OrdersApi } from '../../../api/client';
+
+type SortKey = 'date' | 'client' | 'price';
+type SortDir = 'asc' | 'desc';
 
 export default function OrdersListScreen() {
   const { theme } = useTheme();
   const navigation = useNavigation<any>();
-  const documents = useAppStore((s) => s.documents);
+  const documentsStore = useAppStore((s) => s.documents);
+  const [documents, setDocuments] = useState<SalesDocument[]>(documentsStore);
   const [q, setQ] = useState('');
-  
+  const [refreshing, setRefreshing] = useState(false);
+  const [showFilters, setShowFilters] = useState(false);
+  const [sortKey, setSortKey] = useState<SortKey>('date');
+  const [sortDir, setSortDir] = useState<SortDir>('desc');
 
-  const filtered = useMemo(() => {
+  async function loadOrders() {
+    if (!API) return;
+    try {
+      const res: any = await OrdersApi(API).listAdmin();
+      const list: any[] = (res?.orders || res?.items || res?.data?.orders || (Array.isArray(res) ? res : [])) as any[];
+      const mapped: SalesDocument[] = list.map((o: any) => {
+        const items = (o?.items || []).map((it: any) => ({
+          id: String(it?._id || it?.id || Math.random()),
+          name: it?.detalles || (it?.id_servicio?.name || 'Servicio'),
+          price: Number(it?.valor || 0),
+          observations: it?.detalles,
+        }));
+        const featuredFromItems =
+          (o?.items || []).find((it: any) => it?.imageUrl)?.imageUrl ||
+          (o?.items || []).find((it: any) => it?.id_servicio?.imageUrl)?.id_servicio?.imageUrl;
+        const featuredFromAttachments = Array.isArray(o?.attachments) && o.attachments.length > 0 ? o.attachments[0] : undefined;
+        const featured = featuredFromAttachments || featuredFromItems || undefined;
+        return {
+          id: (o?._id || o?.id) as string,
+          clientId: (o?.user?._id || o?.user?.id || 'unknown') as any,
+          clientName: o?.user?.name || '',
+          clientEmail: o?.user?.email || '',
+          items,
+          status: 'Order' as any,
+          orderState: (o?.paymentStatus || 'PENDING') as any,
+          images: [],
+          featuredImage: featured,
+          createdAt: o?.createdAt || new Date().toISOString(),
+          updatedAt: o?.updatedAt || new Date().toISOString(),
+        } as SalesDocument;
+      });
+      setDocuments(mapped);
+    } catch (e) {
+      setDocuments(documentsStore);
+    }
+  }
+
+  useFocusEffect(
+    useCallback(() => {
+      loadOrders();
+      return () => {};
+    }, [])
+  );
+
+  const filteredAndSorted = useMemo(() => {
     const query = q.trim().toLowerCase();
-    if (!query) return documents;
-    return documents.filter((d) => `${d.id}`.toLowerCase().includes(query));
-  }, [q, documents]);
+    let base = documents;
+
+    if (query) {
+      base = documents.filter((d) => {
+        const id = String(d.id || '').toLowerCase();
+        const clientName = String((d as any).clientName || '').toLowerCase();
+        const clientEmail = String((d as any).clientEmail || '').toLowerCase();
+        return id.includes(query) || clientName.includes(query) || clientEmail.includes(query);
+      });
+    }
+
+    const totalPrice = (d: SalesDocument) => d.items.reduce((s, i) => s + i.price, 0);
+    const dateValue = (d: SalesDocument) => {
+      const raw = (d.createdAt || d.updatedAt || '') as any;
+      const ts = new Date(raw).getTime();
+      return Number.isFinite(ts) ? ts : 0;
+    };
+    const clientValue = (d: SalesDocument) => String((d as any).clientName || '').toLowerCase();
+
+    const dir = sortDir === 'asc' ? 1 : -1;
+    const sorted = [...base].sort((a, b) => {
+      if (sortKey === 'price') return (totalPrice(a) - totalPrice(b)) * dir;
+      if (sortKey === 'client') return clientValue(a).localeCompare(clientValue(b)) * dir;
+      return (dateValue(a) - dateValue(b)) * dir;
+    });
+
+    return sorted;
+  }, [q, documents, sortKey, sortDir]);
 
   const empty = !documents.length;
 
@@ -46,14 +124,79 @@ export default function OrdersListScreen() {
                 borderRadius: theme.radius,
                 paddingHorizontal: theme.spacing(1.5),
                 paddingVertical: theme.spacing(1.25),
-                marginBottom: theme.spacing(1.5),
+                marginBottom: theme.spacing(1),
               },
             ]}
           />
+
+          <View style={[styles.filtersRow, { marginBottom: theme.spacing(1.5) }]}>
+            <TouchableOpacity
+              onPress={() => setShowFilters((v) => !v)}
+              style={[
+                styles.filterButton,
+                {
+                  backgroundColor: theme.colors.card,
+                  borderColor: theme.colors.border,
+                  borderRadius: theme.radius,
+                },
+              ]}
+              activeOpacity={0.9}
+            >
+              <MaterialCommunityIcons name="filter-variant" size={moderateScale(18)} color={theme.colors.text} />
+              <Text style={{ color: theme.colors.text, fontWeight: '700', marginLeft: 8 }}>
+                Filtros
+              </Text>
+              <Text style={{ color: theme.colors.muted, marginLeft: 8 }}>
+                {sortKey === 'date' ? 'Fecha' : sortKey === 'client' ? 'Cliente' : 'Precio'} · {sortDir === 'asc' ? 'Asc' : 'Desc'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          {showFilters ? (
+            <View style={[styles.filtersPanel, { backgroundColor: theme.colors.card, borderColor: theme.colors.border, borderRadius: theme.radius, marginBottom: theme.spacing(1.5) }]}>
+              <View style={styles.filtersPanelRow}>
+                <TouchableOpacity
+                  onPress={() => setSortKey('date')}
+                  style={[styles.pill, { borderColor: theme.colors.border, backgroundColor: sortKey === 'date' ? theme.colors.background : theme.colors.card }]}
+                >
+                  <Text style={{ color: theme.colors.text, fontWeight: '700' }}>Fecha</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => setSortKey('client')}
+                  style={[styles.pill, { borderColor: theme.colors.border, backgroundColor: sortKey === 'client' ? theme.colors.background : theme.colors.card }]}
+                >
+                  <Text style={{ color: theme.colors.text, fontWeight: '700' }}>Cliente</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => setSortKey('price')}
+                  style={[styles.pill, { borderColor: theme.colors.border, backgroundColor: sortKey === 'price' ? theme.colors.background : theme.colors.card }]}
+                >
+                  <Text style={{ color: theme.colors.text, fontWeight: '700' }}>Precio</Text>
+                </TouchableOpacity>
+              </View>
+
+              <View style={[styles.filtersPanelRow, { marginTop: 10 }]}>
+                <TouchableOpacity
+                  onPress={() => setSortDir('asc')}
+                  style={[styles.pill, { borderColor: theme.colors.border, backgroundColor: sortDir === 'asc' ? theme.colors.background : theme.colors.card }]}
+                >
+                  <Text style={{ color: theme.colors.text, fontWeight: '700' }}>Ascendente</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => setSortDir('desc')}
+                  style={[styles.pill, { borderColor: theme.colors.border, backgroundColor: sortDir === 'desc' ? theme.colors.background : theme.colors.card }]}
+                >
+                  <Text style={{ color: theme.colors.text, fontWeight: '700' }}>Descendente</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          ) : null}
           
           <FlatList
-            data={filtered}
+            data={filteredAndSorted}
             keyExtractor={(d: SalesDocument) => d.id}
+            refreshing={refreshing}
+            onRefresh={() => { setRefreshing(true); loadOrders().finally(() => setRefreshing(false)); }}
             contentContainerStyle={{ paddingBottom: theme.spacing(3) }}
             renderItem={({ item: d }) => (
               <TouchableOpacity
@@ -73,16 +216,26 @@ export default function OrdersListScreen() {
                 <View style={{ position: 'relative', padding: theme.spacing(1.75) }}>
                   <MaterialCommunityIcons name="truck-delivery-outline" size={moderateScale(20)} color={theme.colors.primary} style={{ position: 'absolute', right: theme.spacing(0.5), top: theme.spacing(0.5) }} />
                   <View style={{ flexDirection: 'row', gap: 12 }}>
-                    {d.featuredImage ? (
-                      <Image source={{ uri: d.featuredImage }} style={[styles.thumb, { borderRadius: theme.radius, width: scale(64), height: scale(64) }]} contentFit="cover" />
-                    ) : (
-                      <View style={[styles.thumb, { borderRadius: theme.radius, width: scale(64), height: scale(64) }]} />
-                    )}
+                    {d.featuredImage
+                      ? (
+                        <Image
+                          source={{ uri: d.featuredImage }}
+                          style={[styles.thumb, { borderRadius: theme.radius, width: scale(64), height: scale(64) }]}
+                          contentFit="cover"
+                        />
+                      )
+                      : (
+                        <View style={[styles.thumb, { borderRadius: theme.radius, width: scale(64), height: scale(64), alignItems: 'center', justifyContent: 'center' }]}>
+                          <MaterialCommunityIcons name="package-variant-closed" size={moderateScale(24)} color={theme.colors.muted} />
+                        </View>
+                      )}
                     <View style={{ flex: 1 }}>
                       <Text style={{ color: theme.colors.text, fontWeight: '700', fontSize: responsiveFontSize(14), textDecorationLine: 'underline' }}>
                         Pedido #{d.id.slice(0, 6).toUpperCase()}
                       </Text>
-                      <Text style={{ color: theme.colors.muted, marginTop: 2 }}>Tapicería... →</Text>
+                      <Text style={{ color: theme.colors.muted, marginTop: 2 }} numberOfLines={1}>
+                        {d.items.length > 0 ? d.items.map(i => i.name).join(', ') : 'Sin items'} →
+                      </Text>
                       <Text style={{ color: theme.colors.primary, fontWeight: '700', fontSize: responsiveFontSize(26), marginTop: 6 }}>
                         ${d.items.reduce((s, i) => s + i.price, 0).toLocaleString()}
                       </Text>
@@ -141,6 +294,12 @@ const styles = StyleSheet.create({
   statusPill: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999 },
   fab: { position: 'absolute', borderWidth: 1, shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 12, shadowOffset: { width: 0, height: 6 } },
   emptyCta: { position: 'absolute', alignSelf: 'center', borderWidth: 1, shadowColor: '#000', shadowOpacity: 0.18, shadowRadius: 16, shadowOffset: { width: 0, height: 8 }, elevation: 6 },
+
+  filtersRow: { flexDirection: 'row', alignItems: 'center' },
+  filterButton: { flexDirection: 'row', alignItems: 'center', borderWidth: 1, paddingVertical: 10, paddingHorizontal: 12, flex: 1 },
+  filtersPanel: { borderWidth: 1, padding: 12 },
+  filtersPanelRow: { flexDirection: 'row', gap: 10 },
+  pill: { flex: 1, borderWidth: 1, paddingVertical: 10, alignItems: 'center' },
   
 });
 

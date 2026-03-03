@@ -1,31 +1,30 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, FlatList, Image, Modal, Pressable, Animated, Easing } from 'react-native';
+import { View, Text, StyleSheet, TextInput, TouchableOpacity, FlatList, Image, Modal, Pressable, Animated, Easing, ActivityIndicator, type StyleProp, type ViewStyle } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useUserStore } from '../store/userStore';
 import { useFavoritesStore } from '../store/favoritesStore';
 import { API } from '../config';
 import { ProductsApi, ServicesApi } from '../api/client';
 import FloatingCartButton from '../components/FloatingCartButton';
+import { useTheme } from '../theme/theme';
 
 type CatalogItem = {
   id: string;
   title: string;
   material: string;
-  image: string;
+  image?: string | null;
+  price?: number | null;
 };
-
-const SAMPLE_DATA: CatalogItem[] = [];
 
 type ServiceItem = {
   id: string;
   title: string;
   description: string;
-  image: string;
+  image?: string | null;
 };
 
-const SERVICES_DATA: ServiceItem[] = [];
-
 export default function SearchScreen({ navigation }: any) {
+  const { theme } = useTheme();
   const contact = useUserStore((s) => s.contact);
   const [segment, setSegment] = useState<'servicios' | 'productos'>('productos');
   const [warnContactModal, setWarnContactModal] = useState(false);
@@ -54,56 +53,107 @@ export default function SearchScreen({ navigation }: any) {
   const [services, setServices] = useState<ServiceItem[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
-  useEffect(() => {
-    (async () => {
-      try {
-        if (!API) return;
-        setLoading(true);
-        const [prodsRes, servRes] = await Promise.allSettled([ProductsApi(API).list(), ServicesApi(API).list()]);
-        const prodsList: any[] =
-          prodsRes.status === 'fulfilled'
-            ? (prodsRes.value as any).products || (Array.isArray(prodsRes.value) ? prodsRes.value : [])
-            : [];
-        const servList: any[] =
-          servRes.status === 'fulfilled'
-            ? (servRes.value as any).services || (Array.isArray(servRes.value) ? servRes.value : [])
-            : [];
-        const mappedP: CatalogItem[] = prodsList.map((p: any, idx: number) => ({
+
+  const pickArray = (res: any, keys: string[]) => {
+    for (const k of keys) {
+      const v = res?.[k];
+      if (Array.isArray(v)) return v;
+    }
+    const data = res?.data;
+    if (Array.isArray(data)) return data;
+    for (const k of keys) {
+      const v = data?.[k];
+      if (Array.isArray(v)) return v;
+    }
+    const items = res?.items;
+    if (Array.isArray(items)) return items;
+    const dataItems = data?.items;
+    if (Array.isArray(dataItems)) return dataItems;
+    return Array.isArray(res) ? res : [];
+  };
+
+  const pickImageUrl = (obj: any): string | null => {
+    const candidate =
+      obj?.imageUrl ||
+      obj?.image ||
+      obj?.featuredImage ||
+      (Array.isArray(obj?.images) ? obj.images[0] : undefined);
+    if (!candidate) return null;
+    if (typeof candidate !== 'string') return candidate?.url || candidate?.uri || null;
+    if (candidate.startsWith('blob:')) return null;
+    return candidate;
+  };
+
+  const parsePriceBand = (band: string): { min?: number; max?: number } => {
+    // Example: "90.000COP - 100.000" or "90.000 - 100.000"
+    const parts = String(band).split('-').map((p) => p.trim());
+    const toNum = (s: string) => {
+      const digits = s.replace(/[\D]/g, '');
+      const n = digits ? Number(digits) : NaN;
+      return Number.isFinite(n) ? n : undefined;
+    };
+    return { min: parts[0] ? toNum(parts[0]) : undefined, max: parts[1] ? toNum(parts[1]) : undefined };
+  };
+
+  const loadCatalog = async () => {
+    if (!API) {
+      setProducts([]);
+      setServices([]);
+      setError('Configura la URL del backend');
+      return;
+    }
+    setLoading(true);
+    try {
+      const [prodsRes, servRes] = await Promise.allSettled([ProductsApi(API).list(), ServicesApi(API).list()]);
+      const prodsList: any[] = prodsRes.status === 'fulfilled' ? pickArray(prodsRes.value, ['products', 'result', 'rows']) : [];
+      const servList: any[] = servRes.status === 'fulfilled' ? pickArray(servRes.value, ['services', 'result', 'rows']) : [];
+
+      const mappedP: CatalogItem[] = prodsList
+        .map((p: any, idx: number) => ({
           id: p._id || p.id || String(idx),
-          title: p.name || p.title || 'Producto',
+          title: p.name || p.title || '',
           material: p.material || p.category?.name || p.subtitle || '',
-          image: p.featuredImage || (Array.isArray(p.images) ? p.images[0] : undefined) || 'https://images.unsplash.com/photo-1501045661006-fcebe0257c3f?q=80&w=1200&auto=format&fit=crop',
-        }));
-        const mappedS: ServiceItem[] = servList.map((s: any, idx: number) => ({
+          image: pickImageUrl(p),
+          price: p.price != null ? Number(p.price) : null,
+        }))
+        .filter((p) => Boolean(p.id) && Boolean(p.title));
+
+      const mappedS: ServiceItem[] = servList
+        .map((s: any, idx: number) => ({
           id: s._id || s.id || String(idx),
-          title: s.name || s.title || 'Servicio',
+          title: s.name || s.title || '',
           description: s.description || '',
-          image: s.featuredImage || (Array.isArray(s.images) ? s.images[0] : undefined) || 'https://images.unsplash.com/photo-1520881363902-a0ff4e722963?q=80&w=1200&auto=format&fit=crop',
-        }));
-        setProducts(mappedP);
-        setServices(mappedS);
-        setError(null);
-      } catch (e) {
-        setError((e as Error)?.message || 'No se pudo cargar catálogo');
-      } finally {
-        setLoading(false);
-      }
-    })();
+          image: pickImageUrl(s),
+        }))
+        .filter((s) => Boolean(s.id) && Boolean(s.title));
+
+      setProducts(mappedP);
+      setServices(mappedS);
+      setError(null);
+    } catch (e) {
+      setError((e as Error)?.message || 'No se pudo cargar catálogo');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadCatalog();
   }, []);
   async function runProductSearch() {
     try {
-      if (!API) return;
+      if (!API) {
+        setError('Configura la URL del backend');
+        return;
+      }
       setLoading(true);
       // Infer numeric ranges either from min/max inputs or selected bands like "90.000COP - 100.000"
       let minPriceNum: number | undefined = priceMin ? Number(String(priceMin).replace(/[^\d]/g, '')) : undefined;
       let maxPriceNum: number | undefined = priceMax ? Number(String(priceMax).replace(/[^\d]/g, '')) : undefined;
       if ((!minPriceNum || !maxPriceNum) && selectedBands.length) {
-        const first = selectedBands[0];
-        const nums = (first.match(/\d+/g) || []).map((s) => Number(s));
-        if (nums.length >= 2) {
-          minPriceNum = minPriceNum ?? nums[0];
-          maxPriceNum = maxPriceNum ?? nums[1];
-        }
+        const { min, max } = parsePriceBand(selectedBands[0]);
+        minPriceNum = minPriceNum ?? min;
+        maxPriceNum = maxPriceNum ?? max;
       }
       const params: Record<string, unknown> = {};
       if (selectedTypes.length) {
@@ -121,13 +171,14 @@ export default function SearchScreen({ navigation }: any) {
         params.max = maxPriceNum;
       }
       const res = await ProductsApi(API).list(params);
-      const prodsList: any[] = (res as any).products || (Array.isArray(res) ? res : []);
+      const prodsList: any[] = pickArray(res, ['products', 'result', 'rows']);
       const mappedP: CatalogItem[] = prodsList.map((p: any, idx: number) => ({
         id: p._id || p.id || String(idx),
-        title: p.name || p.title || 'Producto',
+        title: p.name || p.title || '',
         material: p.material || p.category?.name || p.subtitle || '',
-        image: p.featuredImage || (Array.isArray(p.images) ? p.images[0] : undefined) || 'https://images.unsplash.com/photo-1501045661006-fcebe0257c3f?q=80&w=1200&auto=format&fit=crop',
-      }));
+        image: pickImageUrl(p),
+        price: p.price != null ? Number(p.price) : null,
+      })).filter((p) => Boolean(p.id) && Boolean(p.title));
       setProducts(mappedP);
       setError(null);
     } catch (e) {
@@ -146,13 +197,29 @@ export default function SearchScreen({ navigation }: any) {
   const renderItem = ({ item }: { item: CatalogItem }) => {
     const isSaved = favoriteIds.includes(item.id);
     return (
-      <TouchableOpacity style={styles.card} activeOpacity={0.8} onPress={() => navigation.navigate('ProductDetail', { item })}>
-        <Image source={{ uri: item.image }} style={styles.cardImage} resizeMode="cover" />
+      <TouchableOpacity
+        style={[styles.card, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}
+        activeOpacity={0.8}
+        onPress={() => navigation.navigate('ProductDetail', { item })}
+      >
+        {item.image ? (
+          <Image source={{ uri: item.image }} style={styles.cardImage} resizeMode="cover" />
+        ) : (
+          <View style={[styles.cardImagePlaceholder, { backgroundColor: theme.colors.background, borderBottomColor: theme.colors.border }]}> 
+            <Ionicons name="image-outline" size={24} color={theme.colors.muted} />
+          </View>
+        )}
         <View style={styles.cardBody}>
-          <Text style={styles.cardTitle}>{item.title}</Text>
-          <Text style={styles.cardSubtitle}>{item.material}</Text>
-          <TouchableOpacity style={styles.bookmark} onPress={() => toggleFavorite(item)}>
-            <Ionicons name={isSaved ? 'bookmark' : 'bookmark-outline'} size={18} color={isSaved ? '#F6C453' : '#6b5a4a'} />
+          <Text style={[styles.cardTitle, { color: theme.colors.text }]}>{item.title}</Text>
+          <Text style={[styles.cardSubtitle, { color: theme.colors.muted }]}>{item.material}</Text>
+          {item.price != null ? (
+            <Text style={[styles.cardPrice, { color: theme.colors.primary }]}>${Number(item.price).toLocaleString()}</Text>
+          ) : null}
+          <TouchableOpacity
+            style={[styles.bookmark, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}
+            onPress={() => toggleFavorite({ id: item.id, title: item.title, material: item.material, image: item.image || '' })}
+          >
+            <Ionicons name={isSaved ? 'bookmark' : 'bookmark-outline'} size={18} color={isSaved ? '#F6C453' : theme.colors.muted} />
           </TouchableOpacity>
         </View>
       </TouchableOpacity>
@@ -161,21 +228,31 @@ export default function SearchScreen({ navigation }: any) {
 
   const renderService = ({ item }: { item: ServiceItem }) => {
     return (
-      <TouchableOpacity style={styles.serviceCard} activeOpacity={0.9} onPress={() => navigation.navigate('ServiceDetail', { item })}>
-        <Image source={{ uri: item.image }} style={styles.serviceImage} resizeMode="cover" />
+      <TouchableOpacity
+        style={[styles.serviceCard, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}
+        activeOpacity={0.9}
+        onPress={() => navigation.navigate('ServiceDetail', { item })}
+      >
+        {item.image ? (
+          <Image source={{ uri: item.image }} style={styles.serviceImage} resizeMode="cover" />
+        ) : (
+          <View style={[styles.serviceImagePlaceholder, { backgroundColor: theme.colors.background, borderColor: theme.colors.border }]}>
+            <Ionicons name="image-outline" size={22} color={theme.colors.muted} />
+          </View>
+        )}
         <View style={{ flex: 1 }}>
-          <Text style={styles.serviceTitle}>{item.title}</Text>
-          <Text style={styles.serviceDesc}>{item.description}</Text>
+          <Text style={[styles.serviceTitle, { color: theme.colors.text }]}>{item.title}</Text>
+          <Text style={[styles.serviceDesc, { color: theme.colors.muted }]}>{item.description}</Text>
         </View>
       </TouchableOpacity>
     );
   };
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
       <FloatingCartButton top={10} left={10} />
-      <View style={styles.headerBar}>
-        <Text style={styles.brand}>Consoft</Text>
+      <View style={[styles.headerBar, { backgroundColor: theme.colors.card, borderBottomColor: theme.colors.border }]}>
+        <Text style={[styles.brand, { color: theme.colors.text }]}>Consoft</Text>
         <TouchableOpacity
           style={styles.ctaLight}
           onPress={() => {
@@ -218,24 +295,32 @@ export default function SearchScreen({ navigation }: any) {
 
       {segment === 'productos' ? (
         <>
-          <TouchableOpacity style={styles.inputRow} activeOpacity={0.8} onPress={() => setTypeModalVisible(true)}>
-            <Ionicons name="search-outline" size={18} color="#9b8c7f" />
-            <Text style={{ flex: 1, marginHorizontal: 8, color: selectedTypes.length ? '#111827' : '#9b8c7f' }}>
+          <TouchableOpacity
+            style={[styles.inputRow, { borderColor: theme.colors.border, backgroundColor: theme.colors.card }]}
+            activeOpacity={0.8}
+            onPress={() => setTypeModalVisible(true)}
+          >
+            <Ionicons name="search-outline" size={18} color={theme.colors.muted} />
+            <Text style={{ flex: 1, marginHorizontal: 8, color: selectedTypes.length ? theme.colors.text : theme.colors.muted }}>
               {selectedTypes.length ? selectedTypes.join(', ') : '¿Qué tipo de mueble buscas?'}
             </Text>
-            <Ionicons name="chevron-forward" size={18} color="#9b8c7f" />
+            <Ionicons name="chevron-forward" size={18} color={theme.colors.muted} />
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.inputRow} activeOpacity={0.8} onPress={() => setPriceModalVisible(true)}>
-            <Ionicons name="pricetag-outline" size={18} color="#9b8c7f" />
-            <Text style={{ flex: 1, marginHorizontal: 8, color: priceMin || priceMax || selectedBands.length ? '#111827' : '#9b8c7f' }}>
+          <TouchableOpacity
+            style={[styles.inputRow, { borderColor: theme.colors.border, backgroundColor: theme.colors.card }]}
+            activeOpacity={0.8}
+            onPress={() => setPriceModalVisible(true)}
+          >
+            <Ionicons name="pricetag-outline" size={18} color={theme.colors.muted} />
+            <Text style={{ flex: 1, marginHorizontal: 8, color: priceMin || priceMax || selectedBands.length ? theme.colors.text : theme.colors.muted }}>
               {priceMin || priceMax
                 ? `${priceMin || 'min'} - ${priceMax || 'max'}`
                 : selectedBands.length
                   ? selectedBands.join(', ')
                   : 'Precio'}
             </Text>
-            <Ionicons name="chevron-forward" size={18} color="#9b8c7f" />
+            <Ionicons name="chevron-forward" size={18} color={theme.colors.muted} />
           </TouchableOpacity>
 
           <TouchableOpacity style={styles.searchButton} onPress={runProductSearch}>
@@ -243,16 +328,64 @@ export default function SearchScreen({ navigation }: any) {
             <Ionicons name="search-outline" size={16} color="#fff" style={{ marginLeft: 8 }} />
           </TouchableOpacity>
 
-          <FlatList
-            data={data}
-            keyExtractor={(item) => item.id}
-            renderItem={renderItem}
-            numColumns={2}
-            columnWrapperStyle={{ gap: 16 }}
-            contentContainerStyle={styles.grid}
-            extraData={favoriteIds}
-            showsVerticalScrollIndicator={false}
-          />
+          {loading ? (
+            <View style={styles.centerState}>
+              <ActivityIndicator size="small" color={theme.colors.primary} />
+              <Text style={[styles.centerStateText, { color: theme.colors.muted }]}>Cargando productos...</Text>
+            </View>
+          ) : error ? (
+            <View style={styles.centerState}>
+              <Text style={[styles.centerStateText, { color: theme.colors.muted }]}>{error}</Text>
+              <TouchableOpacity style={[styles.retryBtn, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]} onPress={() => loadCatalog()}>
+                <Ionicons name="refresh" size={16} color={theme.colors.primary} />
+                <Text style={[styles.retryText, { color: theme.colors.primary }]}>Reintentar</Text>
+              </TouchableOpacity>
+            </View>
+          ) : data.length === 0 ? (
+            <View style={styles.centerState}>
+              <Text style={[styles.centerStateText, { color: theme.colors.muted }]}>No hay productos en el catálogo.</Text>
+              <TouchableOpacity style={[styles.customProductButton, { backgroundColor: theme.colors.card, borderColor: theme.colors.primary }]} onPress={() => navigation.navigate('CustomProduct')}>
+                <View style={[styles.customProductIcon, { backgroundColor: theme.colors.primary + '15' }]}>
+                  <Ionicons name="hammer-outline" size={24} color={theme.colors.primary} />
+                </View>
+                <View style={styles.customProductContent}>
+                  <Text style={[styles.customProductTitle, { color: theme.colors.text }]}>Diseño personalizado</Text>
+                  <Text style={[styles.customProductSubtitle, { color: theme.colors.muted }]}>Cuéntanos qué necesitas y te cotizamos</Text>
+                </View>
+                <Ionicons name="arrow-forward" size={20} color={theme.colors.primary} />
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <View style={{ flex: 1 }}>
+              <FlatList
+                data={data}
+                keyExtractor={(item) => item.id}
+                renderItem={renderItem}
+                style={{ flex: 1 }}
+                numColumns={2}
+                columnWrapperStyle={{ gap: 16 }}
+                contentContainerStyle={[styles.grid, { paddingBottom: 120 }]}
+                extraData={favoriteIds}
+                showsVerticalScrollIndicator={false}
+              />
+
+              <View style={{ paddingHorizontal: 16, paddingBottom: 16 }}>
+                <TouchableOpacity
+                  style={[styles.customProductButton, { backgroundColor: theme.colors.card, borderColor: theme.colors.primary }]}
+                  onPress={() => navigation.navigate('CustomProduct')}
+                >
+                  <View style={[styles.customProductIcon, { backgroundColor: theme.colors.primary + '15' }]}>
+                    <Ionicons name="hammer-outline" size={24} color={theme.colors.primary} />
+                  </View>
+                  <View style={styles.customProductContent}>
+                    <Text style={[styles.customProductTitle, { color: theme.colors.text }]}>¿No encuentras lo que buscas?</Text>
+                    <Text style={[styles.customProductSubtitle, { color: theme.colors.muted }]}>Diseña tu mueble ideal y te cotizamos</Text>
+                  </View>
+                  <Ionicons name="arrow-forward" size={20} color={theme.colors.primary} />
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
         </>
       ) : (
         <>
@@ -262,6 +395,7 @@ export default function SearchScreen({ navigation }: any) {
             data={services}
             keyExtractor={(item) => item.id}
             renderItem={renderService}
+            style={{ flex: 1 }}
             ItemSeparatorComponent={() => <View style={{ height: 14 }} />}
             contentContainerStyle={{ paddingBottom: 32, paddingTop: 8 }}
             showsVerticalScrollIndicator={false}
@@ -270,11 +404,11 @@ export default function SearchScreen({ navigation }: any) {
       )}
 
       {/* Modal de tipos de mueble (overlay aparece primero, sheet sube después) */}
-      <BottomSheet visible={typeModalVisible} onClose={() => setTypeModalVisible(false)}>
+      <BottomSheet visible={typeModalVisible} onClose={() => setTypeModalVisible(false)} sheetStyle={{ backgroundColor: theme.colors.card }}>
         <View style={styles.modalHeader}>
-          <Text style={styles.modalTitle}>¿Qué tipo de Mueble estás buscando?</Text>
+          <Text style={[styles.modalTitle, { color: theme.colors.text }]}>¿Qué tipo de Mueble estás buscando?</Text>
           <TouchableOpacity onPress={() => setTypeModalVisible(false)}>
-            <Ionicons name="close" size={22} color="#111827" />
+            <Ionicons name="close" size={22} color={theme.colors.text} />
           </TouchableOpacity>
         </View>
         {FURNITURE_TYPES.map((t) => {
@@ -282,7 +416,7 @@ export default function SearchScreen({ navigation }: any) {
           return (
             <TouchableOpacity key={t} style={styles.optionRow} onPress={() => toggleType(t)}>
               <View style={[styles.checkbox, checked ? styles.checkboxChecked : styles.checkboxUnchecked]} />
-              <Text style={styles.optionLabel}>{t}</Text>
+              <Text style={[styles.optionLabel, { color: theme.colors.text }]}>{t}</Text>
             </TouchableOpacity>
           );
         })}
@@ -294,12 +428,12 @@ export default function SearchScreen({ navigation }: any) {
       {/* Advertencia de contacto incompleto */}
       <Modal visible={warnContactModal} transparent animationType="fade" onRequestClose={() => setWarnContactModal(false)}>
         <View style={styles.centerBackdrop}>
-          <View style={styles.warnCard}>
-            <Text style={{ fontWeight: '800', color: '#111827', marginBottom: 6 }}>Falta información</Text>
-            <Text style={{ color: '#374151', marginBottom: 12 }}>Completa tu información de contacto antes de agendar una cita.</Text>
+          <View style={[styles.warnCard, { backgroundColor: theme.colors.card, borderColor: theme.colors.border, borderWidth: 1 }]}>
+            <Text style={{ fontWeight: '800', color: theme.colors.text, marginBottom: 6 }}>Falta información</Text>
+            <Text style={{ color: theme.colors.muted, marginBottom: 12 }}>Completa tu información de contacto antes de agendar una cita.</Text>
             <View style={{ flexDirection: 'row', gap: 10 }}>
-              <TouchableOpacity style={[styles.warnBtn, styles.warnBtnLight]} onPress={() => setWarnContactModal(false)}>
-                <Text style={[styles.warnBtnText, { color: '#111827' }]}>Cancelar</Text>
+              <TouchableOpacity style={[styles.warnBtn, styles.warnBtnLight, { backgroundColor: theme.colors.background, borderColor: theme.colors.border, borderWidth: 1 }]} onPress={() => setWarnContactModal(false)}>
+                <Text style={[styles.warnBtnText, { color: theme.colors.text }]}>Cancelar</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.warnBtn, { backgroundColor: BROWN }]}
@@ -316,11 +450,11 @@ export default function SearchScreen({ navigation }: any) {
       </Modal>
 
       {/* Modal de precio */}
-      <BottomSheet visible={priceModalVisible} onClose={() => setPriceModalVisible(false)}>
+      <BottomSheet visible={priceModalVisible} onClose={() => setPriceModalVisible(false)} sheetStyle={{ backgroundColor: theme.colors.card }}>
         <View style={styles.modalHeader}>
-          <Text style={styles.modalTitle}>¿Qué tipo de Precio estás buscando?</Text>
+          <Text style={[styles.modalTitle, { color: theme.colors.text }]}>¿Qué tipo de Precio estás buscando?</Text>
           <TouchableOpacity onPress={() => setPriceModalVisible(false)}>
-            <Ionicons name="close" size={22} color="#111827" />
+            <Ionicons name="close" size={22} color={theme.colors.text} />
           </TouchableOpacity>
         </View>
 
@@ -330,8 +464,8 @@ export default function SearchScreen({ navigation }: any) {
           onChangeText={setPriceMin}
           placeholder="0"
           keyboardType="numeric"
-          placeholderTextColor="#9AA3AF"
-          style={[styles.priceInput, { backgroundColor: '#EEF0F5', borderColor: BROWN }]}
+          placeholderTextColor={theme.colors.muted}
+          style={[styles.priceInput, { backgroundColor: theme.colors.background, borderColor: theme.colors.border, color: theme.colors.text }]}
         />
 
         <Text style={[styles.priceLabel, { marginTop: 8, color: BROWN }]}>Ingresa el Valor Maximo</Text>
@@ -340,8 +474,8 @@ export default function SearchScreen({ navigation }: any) {
           onChangeText={setPriceMax}
           placeholder="0"
           keyboardType="numeric"
-          placeholderTextColor="#9AA3AF"
-          style={[styles.priceInput, { backgroundColor: '#EEF0F5', borderColor: BROWN }]}
+          placeholderTextColor={theme.colors.muted}
+          style={[styles.priceInput, { backgroundColor: theme.colors.background, borderColor: theme.colors.border, color: theme.colors.text }]}
         />
 
         <Text style={[styles.priceLabel, { marginTop: 12, color: BROWN }]}>Precios Estandar</Text>
@@ -350,7 +484,7 @@ export default function SearchScreen({ navigation }: any) {
           return (
             <TouchableOpacity key={b} style={styles.optionRow} onPress={() => toggleBand(b)}>
               <View style={[styles.checkbox, checked ? styles.checkboxChecked : styles.checkboxUnchecked]} />
-              <Text style={styles.optionLabel}>{b}</Text>
+              <Text style={[styles.optionLabel, { color: theme.colors.text }]}>{b}</Text>
             </TouchableOpacity>
           );
         })}
@@ -368,9 +502,9 @@ const LIGHT = '#f3ece7';
 const LILAC = '#EDE9FE';
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#fff', paddingHorizontal: 20, paddingTop: 16 },
-  headerBar: { marginHorizontal: -20, paddingHorizontal: 20, backgroundColor: '#F3F4F6', height: 64, borderBottomLeftRadius: 20, borderBottomRightRadius: 20, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 },
-  brand: { color: '#111827', fontWeight: '800', fontSize: 18 },
+  container: { flex: 1, paddingHorizontal: 20, paddingTop: 16 },
+  headerBar: { marginHorizontal: -20, paddingHorizontal: 20, height: 64, borderBottomLeftRadius: 20, borderBottomRightRadius: 20, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12, borderBottomWidth: 1 },
+  brand: { fontWeight: '800', fontSize: 18 },
   ctaLight: { backgroundColor: BROWN, paddingVertical: 8, paddingHorizontal: 12, borderRadius: 999, flexDirection: 'row', alignItems: 'center' },
   ctaLightText: { color: '#fff', fontWeight: '700', marginLeft: 6 },
 
@@ -420,26 +554,46 @@ const styles = StyleSheet.create({
   },
   searchText: { color: '#fff', fontWeight: '700' },
 
+  centerState: { paddingVertical: 26, alignItems: 'center', justifyContent: 'center', gap: 10 },
+  centerStateText: { fontSize: 14, textAlign: 'center' },
+  retryBtn: {
+    marginTop: 6,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  retryText: { fontWeight: '800' },
+
   grid: { paddingBottom: 24, gap: 16 },
   card: {
     flex: 1,
-    backgroundColor: '#fff',
     borderRadius: 16,
     overflow: 'hidden',
     borderWidth: 1,
     borderColor: '#eee',
   },
   cardImage: { width: '100%', height: 120 },
+  cardImagePlaceholder: {
+    width: '100%',
+    height: 120,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderBottomWidth: 1,
+  },
   cardBody: { padding: 12, position: 'relative' },
   cardTitle: { fontWeight: '700', marginBottom: 6 },
   cardSubtitle: { color: '#8a7c70', fontSize: 12 },
-  bookmark: { position: 'absolute', right: 10, top: -20, backgroundColor: '#fff', padding: 6, borderRadius: 12, borderWidth: 1, borderColor: '#eee' },
+  cardPrice: { marginTop: 6, fontWeight: '800', fontSize: 12 },
+  bookmark: { position: 'absolute', right: 10, top: -20, padding: 6, borderRadius: 12, borderWidth: 1, borderColor: '#eee' },
 
   // Services list styles
   serviceCard: {
     flexDirection: 'row',
     gap: 12,
-    backgroundColor: '#fff',
     borderRadius: 18,
     padding: 14,
     borderWidth: 1,
@@ -450,6 +604,14 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 3 },
   },
   serviceImage: { width: 120, height: 80, borderRadius: 12 },
+  serviceImagePlaceholder: {
+    width: 120,
+    height: 80,
+    borderRadius: 12,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   serviceTitle: { fontWeight: '800', marginBottom: 6, color: '#2d2420', fontSize: 14 },
   serviceDesc: { color: '#6f635b', fontSize: 12 },
   // chips removed
@@ -458,28 +620,58 @@ const styles = StyleSheet.create({
   // Bottom sheet modal styles
   modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.35)', justifyContent: 'flex-end' },
   backdropClickable: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
-  modalSheet: { backgroundColor: '#fff', borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 16, gap: 12, maxHeight: '85%' },
+  modalSheet: { borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 16, gap: 12, maxHeight: '85%' },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
-  modalTitle: { fontSize: 16, fontWeight: '800', color: '#111827' },
+  modalTitle: { fontSize: 16, fontWeight: '800' },
   optionRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10 },
-  optionLabel: { color: '#111827', fontWeight: '600' },
+  optionLabel: { fontWeight: '600' },
   checkbox: { width: 26, height: 26, borderRadius: 6, borderWidth: 1 },
-  checkboxUnchecked: { borderColor: '#C7C7C7', backgroundColor: '#fff' },
+  checkboxUnchecked: { borderColor: '#C7C7C7' },
   checkboxChecked: { borderColor: '#6b4028', backgroundColor: '#F4EFFF' },
   priceLabel: { fontWeight: '700' },
   priceInput: { borderWidth: 1, borderRadius: 12, paddingHorizontal: 12, height: 44 },
   saveBtn: { marginTop: 8, alignSelf: 'center', width: '86%', backgroundColor: '#6b4028', borderRadius: 16, paddingVertical: 12, alignItems: 'center' },
   saveBtnText: { color: '#fff', fontWeight: '700' },
   centerBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.35)', alignItems: 'center', justifyContent: 'center', padding: 20 },
-  warnCard: { backgroundColor: '#fff', borderRadius: 16, padding: 16, width: '90%' },
+  warnCard: { borderRadius: 16, padding: 16, width: '90%' },
   warnBtn: { flex: 1, borderRadius: 12, alignItems: 'center', paddingVertical: 12 },
   warnBtnLight: { backgroundColor: '#e5e7eb' },
   warnBtnText: { color: '#fff', fontWeight: '700' },
+  customProductButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    padding: 16,
+    borderRadius: 16,
+    borderWidth: 2,
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  customProductIcon: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  customProductContent: { flex: 1 },
+  customProductTitle: { fontSize: 16, fontWeight: '700', marginBottom: 4 },
+  customProductSubtitle: { fontSize: 14, lineHeight: 18 },
 });
 
 
 // Simple bottom sheet with overlay-first animation
-function BottomSheet({ visible, onClose, children }: { visible: boolean; onClose: () => void; children: React.ReactNode }) {
+function BottomSheet({
+  visible,
+  onClose,
+  children,
+  sheetStyle,
+}: {
+  visible: boolean;
+  onClose: () => void;
+  children: React.ReactNode;
+  sheetStyle?: StyleProp<ViewStyle>;
+}) {
   const translateY = React.useRef(new Animated.Value(400)).current;
   const opacity = React.useRef(new Animated.Value(0)).current;
 
@@ -501,7 +693,7 @@ function BottomSheet({ visible, onClose, children }: { visible: boolean; onClose
       <Pressable style={{ ...StyleSheet.absoluteFillObject }} onPress={onClose}>
         <Animated.View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.35)', opacity }} />
       </Pressable>
-      <Animated.View style={[styles.modalSheet, { transform: [{ translateY }] }]}> 
+      <Animated.View style={[styles.modalSheet, sheetStyle, { transform: [{ translateY }] }]}> 
         {children}
       </Animated.View>
     </View>

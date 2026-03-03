@@ -13,7 +13,12 @@
       "backgroundColor": "#ffffff"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSPhotoLibraryUsageDescription": "Necesitamos acceso a tus fotos para adjuntar imágenes a los pedidos.",
+        "NSCameraUsageDescription": "Necesitamos la cámara para tomar fotos de tus productos."
+      },
+      "bundleIdentifier": "com.consoft.admin"
     },
     "android": {
       "adaptiveIcon": {
@@ -22,7 +27,11 @@
       },
       "edgeToEdgeEnabled": true,
       "package": "com.consoft.admin",
-      "versionCode": 1
+      "versionCode": 1,
+      "permissions": [
+        "READ_MEDIA_IMAGES",
+        "READ_EXTERNAL_STORAGE"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -32,6 +41,7 @@
       "expo-maps"
     ],
     "extra": {
+      "API": "http://192.168.1.8:3000",
       "eas": {
         "projectId": "3ac0235d-7f85-4fab-b781-02339fd42418"
       }

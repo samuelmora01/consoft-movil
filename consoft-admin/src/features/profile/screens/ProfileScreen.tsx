@@ -76,14 +76,7 @@ export default function ProfileScreen() {
           <Text style={[styles.itemText, { color: theme.colors.text, flex: 1 }]}>Cambiar mi contraseña</Text>
           <Ionicons name="chevron-forward" size={18} color={theme.colors.muted} />
         </TouchableOpacity>
-        <TouchableOpacity style={styles.itemRow} onPress={() => navigation.navigate('EditStatus') }>
-          <View style={[styles.iconWrap, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}> 
-            <Ionicons name="shield-checkmark" size={18} color={theme.colors.text} />
-          </View>
-          <Text style={[styles.itemText, { color: theme.colors.text, flex: 1 }]}>Editar mi Estado</Text>
-          <Ionicons name="chevron-forward" size={18} color={theme.colors.muted} />
-        </TouchableOpacity>
-      </View>
+              </View>
 
       <TouchableOpacity
         style={[styles.logoutRow]}

@@ -19,16 +19,40 @@ export default function CustomerChatRoot() {
         setLoading(true);
         // Si nos pasan un id explícito, ir directo a la sala
         const forcedId = route.params?.id as string | undefined;
+        const forcedDmUserId = route.params?.dmUserId as string | undefined;
         if (forcedId) {
           navigation.replace('ChatRoom', { id: forcedId, title: 'Chat' });
           return;
         }
+        if (forcedDmUserId) {
+          navigation.replace('ChatRoom', { dmUserId: forcedDmUserId, title: 'Chat con soporte' });
+          return;
+        }
         // Preferir sala DM con el admin basada en el email del usuario
         try {
-          const me = await UsersApi(API).me();
-          const u: any = (me as any)?.user || me;
-          if (u?.email) {
-            navigation.replace('ChatRoom', { id: `dm:${u.email}`, title: 'Chat' });
+          // Buscar admin para obtener su userId
+          const ures = await fetch(`${API}/api/users?search=admin`, { credentials: 'include' as any } as RequestInit);
+          let adminId: string | undefined;
+          if (ures.ok) {
+            const data = await ures.json().catch(() => ({}));
+            const list: any[] = data?.users || data || [];
+            const found = list.find((u: any) =>
+              (u?.role && String(u.role).toLowerCase().includes('admin')) ||
+              (u?.email && ['admin@admin.com', 'admin@admin.admin.com'].includes(String(u.email).toLowerCase()))
+            );
+            adminId = found?._id || found?.id;
+          }
+          if (!adminId) {
+            const all = await fetch(`${API}/api/users`, { credentials: 'include' as any } as RequestInit).then(r => r.ok ? r.json() : Promise.reject()).catch(() => ({}));
+            const list: any[] = all?.users || all || [];
+            const found = list.find((u: any) =>
+              (u?.role && String(u.role).toLowerCase().includes('admin')) ||
+              (u?.email && ['admin@admin.com', 'admin@admin.admin.com'].includes(String(u.email).toLowerCase()))
+            );
+            adminId = found?._id || found?.id;
+          }
+          if (adminId) {
+            navigation.replace('ChatRoom', { dmUserId: adminId, title: 'Chat con soporte' });
             return;
           }
         } catch {}

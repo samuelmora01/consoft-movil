@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, TextInput, TouchableOpacity, Alert } from 'reac
 import { useTheme } from '../../../theme/theme';
 import { useAppStore } from '../../../store/appStore';
 import * as ImagePicker from 'expo-image-picker';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import { Image } from 'expo-image';
 import { UsersApi } from '../../../api/client';
 import { API } from '../../../config';
@@ -19,7 +19,10 @@ export default function EditProfileScreen() {
   const [avatarUrl, setAvatarUrl] = useState(profile.avatarUrl);
 
   async function selectPhoto() {
-    const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.7 });
+    const mediaType: any =
+      (ImagePicker as any).MediaType?.Images ??
+      (ImagePicker as any).MediaTypeOptions?.Images;
+    const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: mediaType, quality: 0.7 });
     if (!res.canceled && res.assets?.length) {
       const asset = res.assets[0];
       let localUri = asset.uri;

@@ -5,8 +5,10 @@ import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { API } from '../config';
 import { QuotationsApi } from '../api/client';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useTheme } from '../theme/theme';
 
 export default function FloatingCartButton({ top = 72, left = 14 }: { top?: number; left?: number }) {
+  const { theme } = useTheme();
   const navigation = useNavigation<any>();
   const [count, setCount] = useState<number>(0);
   const window = Dimensions.get('window');
@@ -65,9 +67,19 @@ export default function FloatingCartButton({ top = 72, left = 14 }: { top?: numb
   );
 
   return (
-    <Animated.View style={[styles.fab, { transform: [{ translateX: pos.x }, { translateY: pos.y }] }]} {...panResponder.panHandlers}>
-      <TouchableOpacity onPress={() => navigation.navigate('Mis pedidos' as never, { screen: 'CartHome' } as never)} accessibilityLabel="Abrir carrito" accessibilityRole="button">
-        <Ionicons name="cart-outline" size={22} color="#6b4028" />
+    <Animated.View
+      style={[
+        styles.fab,
+        {
+          backgroundColor: theme.colors.card,
+          borderColor: theme.colors.border,
+          transform: [{ translateX: pos.x }, { translateY: pos.y }],
+        },
+      ]}
+      {...panResponder.panHandlers}
+    >
+      <TouchableOpacity onPress={() => navigation.navigate('Perfil' as never, { screen: 'CartHome' } as never)} accessibilityLabel="Abrir carrito" accessibilityRole="button">
+        <Ionicons name="cart-outline" size={22} color={theme.colors.primary} />
         {count > 0 ? (
           <View style={styles.badge}>
             <Text style={styles.badgeText}>{count}</Text>
@@ -82,10 +94,8 @@ const styles = StyleSheet.create({
   fab: {
     position: 'absolute',
     zIndex: 50,
-    backgroundColor: '#fff',
     borderRadius: 20,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
     paddingHorizontal: 14,
     paddingVertical: 10,
     shadowColor: '#000',

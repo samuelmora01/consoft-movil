@@ -1,18 +1,22 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useCallback } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, TextInput, FlatList, Modal, KeyboardAvoidingView, Platform, Pressable } from 'react-native';
 import { useTheme } from '../../../theme/theme';
 import { useAppStore } from '../../../store/appStore';
 import { Appointment, AppointmentStatus } from '../../../domain/types';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { responsiveFontSize } from '../../../theme/responsive';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import AppointmentMap from '../components/AppointmentMap';
+import { API } from '../../../config';
+import { VisitsApi } from '../../../api/client';
+import { confirmAppointment, cancelAppointment } from '../appointmentsService';
+import { useToast } from '../../../ui/ToastProvider';
 
 export default function HomeScreen() {
   const { theme } = useTheme();
   const navigation = useNavigation<any>();
-  const appointments = useAppStore((s) => s.appointments);
+  const appointmentsStore = useAppStore((s) => s.appointments);
   const createAppointment = useAppStore((s) => s.createAppointment);
   const setStatus = useAppStore((s) => s.setAppointmentStatus);
   const [tab, setTab] = useState<'Pendientes' | 'Confirmados'>('Pendientes');
@@ -20,7 +24,42 @@ export default function HomeScreen() {
   const [dateQ, setDateQ] = useState('');
   const [showDateModal, setShowDateModal] = useState(false);
   const [tmpDate, setTmpDate] = useState<string | undefined>(undefined);
+  const [appointments, setAppointments] = useState<Appointment[]>(appointmentsStore);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const toast = useToast();
+  const [actingId, setActingId] = useState<string | null>(null);
   // Creation moved to dedicated screen
+  async function loadVisits() {
+    if (!API) return;
+    try {
+      const res: any = await VisitsApi(API).listAdmin();
+      const list: any[] = (res?.visits || res?.items || res?.data?.visits || res?.data || (Array.isArray(res) ? res : [])) as any[];
+      const mapped: Appointment[] = list.map((v: any) => ({
+        id: (v?._id || v?.id) as string,
+        clientId: (v?.user?._id || v?.user?.id || 'unknown') as any,
+        title: v?.user?.name ? `Visita: ${v.user.name}` : (v?.title || 'Visita'),
+        datetime: v?.visitDate || v?.date || v?.startedAt || new Date().toISOString(),
+        status: (String(v?.status).toLowerCase() === 'pendiente' ? AppointmentStatus.Pending : AppointmentStatus.Confirmed) as any,
+        needsApproval: false,
+        createdAt: v?.createdAt || new Date().toISOString(),
+        updatedAt: v?.updatedAt || new Date().toISOString(),
+        location: { type: 'Point', coordinates: [0, 0] },
+        address: v?.address,
+      }));
+      setAppointments(mapped);
+      setError(null);
+    } catch (e) {
+      setAppointments(appointmentsStore);
+      setError((e as Error)?.message || 'No se pudieron cargar las visitas');
+    }
+  }
+  useFocusEffect(
+    useCallback(() => {
+      loadVisits();
+      return () => {};
+    }, [])
+  );
 
   const filtered = useMemo(() => {
     return appointments.filter((a) => {
@@ -44,14 +83,25 @@ export default function HomeScreen() {
       <TextInput value={nameQ} onChangeText={setNameQ} placeholder="¿nombre del cliente?" placeholderTextColor={theme.colors.muted} style={[styles.input, { backgroundColor: theme.colors.card, color: theme.colors.text, borderColor: theme.colors.border }]} />
       <TextInput value={dateQ} onFocus={() => { setTmpDate(dateQ || undefined); setShowDateModal(true); }} onChangeText={setDateQ} placeholder="Filtrar por fecha" placeholderTextColor={theme.colors.muted} style={[styles.input, { backgroundColor: theme.colors.card, color: theme.colors.text, borderColor: theme.colors.border }]} />
 
-      <TouchableOpacity style={[styles.searchBtn, { backgroundColor: theme.colors.primary }]}> 
+      <TouchableOpacity style={[styles.searchBtn, { backgroundColor: theme.colors.primary }]} onPress={() => loadVisits()}> 
         <Text style={{ color: '#fff', fontWeight: '700' }}>Buscar</Text>
       </TouchableOpacity>
 
       <FlatList
         data={filtered}
         keyExtractor={(a: Appointment) => a.id}
-        contentContainerStyle={{ paddingTop: 12, paddingBottom: 120 }}
+        refreshing={refreshing}
+        onRefresh={() => { setRefreshing(true); loadVisits().finally(() => setRefreshing(false)); }}
+        contentContainerStyle={{ paddingTop: 12, paddingBottom: 120, flexGrow: 1 }}
+        ListEmptyComponent={
+          <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+            {error ? (
+              <Text style={{ color: theme.colors.danger, fontSize: responsiveFontSize(12) }}>Error: {error}</Text>
+            ) : (
+              <Text style={{ color: theme.colors.muted, fontSize: responsiveFontSize(12) }}>No hay visitas para mostrar</Text>
+            )}
+          </View>
+        }
         ListFooterComponent={<View style={{ height: 16 }} />}
         renderItem={({ item: a }) => (
           <TouchableOpacity
@@ -64,10 +114,18 @@ export default function HomeScreen() {
             <Text style={{ color: theme.colors.text, fontWeight: '700', position: 'absolute', right: 16, top: 16 }}>{new Date(a.datetime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</Text>
             {a.status === AppointmentStatus.Pending && (
               <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
-                <TouchableOpacity onPress={() => setStatus(a.id, AppointmentStatus.Confirmed)} style={[styles.pill, { backgroundColor: theme.colors.success }]}>
+                <TouchableOpacity
+                  disabled={actingId === a.id}
+                  onPress={async () => { try { setActingId(a.id); await confirmAppointment(a.id); toast.show('Cita confirmada', 'success'); await loadVisits(); } catch (e) { toast.show((e as Error)?.message || 'No se pudo confirmar', 'error'); } finally { setActingId(null); } }}
+                  style={[styles.pill, { backgroundColor: theme.colors.success, opacity: actingId === a.id ? 0.6 : 1 }]}
+                >
                   <Text style={{ color: '#fff', fontWeight: '700' }}>Confirmar</Text>
                 </TouchableOpacity>
-                <TouchableOpacity onPress={() => setStatus(a.id, AppointmentStatus.Cancelled)} style={[styles.pill, { backgroundColor: theme.colors.danger }]}>
+                <TouchableOpacity
+                  disabled={actingId === a.id}
+                  onPress={async () => { try { setActingId(a.id); await cancelAppointment(a.id); toast.show('Cita cancelada', 'info'); await loadVisits(); } catch (e) { toast.show((e as Error)?.message || 'No se pudo cancelar', 'error'); } finally { setActingId(null); } }}
+                  style={[styles.pill, { backgroundColor: theme.colors.danger, opacity: actingId === a.id ? 0.6 : 1 }]}
+                >
                   <Text style={{ color: '#fff', fontWeight: '700' }}>Cancelar</Text>
                 </TouchableOpacity>
               </View>

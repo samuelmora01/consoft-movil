@@ -54,6 +54,8 @@ export default function RegisterScreen() {
           placeholder="********"
           secureTextEntry={!showPwd}
           autoCapitalize="none"
+          autoComplete="off"
+          textContentType="oneTimeCode"
           selectTextOnFocus
           contextMenuHidden={false}
           placeholderTextColor={theme.colors.muted}
@@ -73,6 +75,8 @@ export default function RegisterScreen() {
           placeholder="********"
           secureTextEntry={!showConfirm}
           autoCapitalize="none"
+          autoComplete="off"
+          textContentType="oneTimeCode"
           selectTextOnFocus
           contextMenuHidden={false}
           placeholderTextColor={theme.colors.muted}
