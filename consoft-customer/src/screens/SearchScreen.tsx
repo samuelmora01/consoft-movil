@@ -1,10 +1,10 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, FlatList, Image, Modal, Pressable, Animated, Easing, ActivityIndicator, type StyleProp, type ViewStyle } from 'react-native';
+import React, { useEffect, useMemo, useState, useCallback, memo } from 'react';
+import { View, Text, StyleSheet, TextInput, TouchableOpacity, FlatList, Image, Modal, Pressable, Animated, Easing, ActivityIndicator, ScrollView, type StyleProp, type ViewStyle } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useUserStore } from '../store/userStore';
 import { useFavoritesStore } from '../store/favoritesStore';
 import { API } from '../config';
-import { ProductsApi, ServicesApi } from '../api/client';
+import { ProductsApi, ServicesApi, UsersApi } from '../api/client';
 import FloatingCartButton from '../components/FloatingCartButton';
 import { useTheme } from '../theme/theme';
 
@@ -26,6 +26,7 @@ type ServiceItem = {
 export default function SearchScreen({ navigation }: any) {
   const { theme } = useTheme();
   const contact = useUserStore((s) => s.contact);
+  const setContact = useUserStore((s) => s.setContact);
   const [segment, setSegment] = useState<'servicios' | 'productos'>('productos');
   const [warnContactModal, setWarnContactModal] = useState(false);
   const [query, setQuery] = useState('');
@@ -103,11 +104,15 @@ export default function SearchScreen({ navigation }: any) {
       return;
     }
     setLoading(true);
+    
     try {
-      const [prodsRes, servRes] = await Promise.allSettled([ProductsApi(API).list(), ServicesApi(API).list()]);
-      const prodsList: any[] = prodsRes.status === 'fulfilled' ? pickArray(prodsRes.value, ['products', 'result', 'rows']) : [];
-      const servList: any[] = servRes.status === 'fulfilled' ? pickArray(servRes.value, ['services', 'result', 'rows']) : [];
-
+      console.log('� Loading catalog from:', API);
+      
+      // Cargar productos - simple y directo
+      const prodsRes = await ProductsApi(API).list();
+      console.log('✅ Products loaded');
+      
+      const prodsList: any[] = pickArray(prodsRes, ['products', 'result', 'rows']);
       const mappedP: CatalogItem[] = prodsList
         .map((p: any, idx: number) => ({
           id: p._id || p.id || String(idx),
@@ -117,7 +122,14 @@ export default function SearchScreen({ navigation }: any) {
           price: p.price != null ? Number(p.price) : null,
         }))
         .filter((p) => Boolean(p.id) && Boolean(p.title));
-
+      
+      setProducts(mappedP);
+      
+      // Cargar servicios - simple y directo
+      const servRes = await ServicesApi(API).list();
+      console.log('✅ Services loaded');
+      
+      const servList: any[] = pickArray(servRes, ['services', 'result', 'rows']);
       const mappedS: ServiceItem[] = servList
         .map((s: any, idx: number) => ({
           id: s._id || s.id || String(idx),
@@ -126,12 +138,16 @@ export default function SearchScreen({ navigation }: any) {
           image: pickImageUrl(s),
         }))
         .filter((s) => Boolean(s.id) && Boolean(s.title));
-
-      setProducts(mappedP);
+      
       setServices(mappedS);
+      
       setError(null);
+      console.log('✅ Catalog loaded successfully');
     } catch (e) {
+      console.error('❌ Catalog loading error:', e);
       setError((e as Error)?.message || 'No se pudo cargar catálogo');
+      setProducts([]);
+      setServices([]);
     } finally {
       setLoading(false);
     }
@@ -140,6 +156,40 @@ export default function SearchScreen({ navigation }: any) {
   useEffect(() => {
     loadCatalog();
   }, []);
+
+  // Recargar cuando cambia el segmento si no hay datos
+  useEffect(() => {
+    if (segment === 'productos' && products.length === 0) {
+      loadCatalog();
+    } else if (segment === 'servicios' && services.length === 0) {
+      loadCatalog();
+    }
+  }, [segment]);
+
+  // Debounce para búsqueda de texto
+  const debouncedSearch = useCallback(
+    useMemo(() => {
+      let timeoutId: NodeJS.Timeout;
+      return (searchQuery: string) => {
+        clearTimeout(timeoutId);
+        timeoutId = setTimeout(() => {
+          if (searchQuery.trim()) {
+            runProductSearch();
+          } else if (segment === 'productos') {
+            loadCatalog(); // Recargar productos si se borra la búsqueda
+          }
+        }, 500); // 500ms de debounce
+      };
+    }, [segment]),
+    []
+  );
+
+  // Ejecutar búsqueda cuando cambia el query
+  useEffect(() => {
+    if (segment === 'productos') {
+      debouncedSearch(query);
+    }
+  }, [query, segment, debouncedSearch]);
   async function runProductSearch() {
     try {
       if (!API) {
@@ -156,6 +206,14 @@ export default function SearchScreen({ navigation }: any) {
         maxPriceNum = maxPriceNum ?? max;
       }
       const params: Record<string, unknown> = {};
+      
+      // Agregar query de búsqueda si existe
+      if (query.trim()) {
+        params.search = query.trim();
+        params.q = query.trim();
+        params.query = query.trim();
+      }
+      
       if (selectedTypes.length) {
         params.types = selectedTypes;
         // synonyms
@@ -195,36 +253,59 @@ export default function SearchScreen({ navigation }: any) {
   const toggleFavorite = useFavoritesStore((s) => s.toggle);
 
   const renderItem = ({ item }: { item: CatalogItem }) => {
-    const isSaved = favoriteIds.includes(item.id);
-    return (
-      <TouchableOpacity
-        style={[styles.card, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}
-        activeOpacity={0.8}
-        onPress={() => navigation.navigate('ProductDetail', { item })}
-      >
-        {item.image ? (
-          <Image source={{ uri: item.image }} style={styles.cardImage} resizeMode="cover" />
-        ) : (
-          <View style={[styles.cardImagePlaceholder, { backgroundColor: theme.colors.background, borderBottomColor: theme.colors.border }]}> 
-            <Ionicons name="image-outline" size={24} color={theme.colors.muted} />
-          </View>
-        )}
-        <View style={styles.cardBody}>
-          <Text style={[styles.cardTitle, { color: theme.colors.text }]}>{item.title}</Text>
-          <Text style={[styles.cardSubtitle, { color: theme.colors.muted }]}>{item.material}</Text>
-          {item.price != null ? (
-            <Text style={[styles.cardPrice, { color: theme.colors.primary }]}>${Number(item.price).toLocaleString()}</Text>
-          ) : null}
-          <TouchableOpacity
-            style={[styles.bookmark, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}
-            onPress={() => toggleFavorite({ id: item.id, title: item.title, material: item.material, image: item.image || '' })}
-          >
-            <Ionicons name={isSaved ? 'bookmark' : 'bookmark-outline'} size={18} color={isSaved ? '#F6C453' : theme.colors.muted} />
-          </TouchableOpacity>
+  const isSaved = favoriteIds.includes(item.id);
+  
+  return (
+    <TouchableOpacity
+      style={[styles.card, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}
+      activeOpacity={0.8}
+      onPress={() => navigation.navigate('ProductDetail', { productId: item.id, from: 'search', item })}
+    >
+      {item.image ? (
+        <Image 
+          source={{ uri: item.image }} 
+          style={styles.cardImage}
+          resizeMode="cover"
+        />
+      ) : (
+        <View style={[styles.cardImagePlaceholder, { backgroundColor: theme.colors.border }]}>
+          <Ionicons name="cube-outline" size={32} color={theme.colors.muted} />
         </View>
+      )}
+      <View style={styles.cardBody}>
+        <Text style={[styles.cardTitle, { color: theme.colors.text }]} numberOfLines={2}>
+          {item.title}
+        </Text>
+        <Text style={[styles.cardSubtitle, { color: theme.colors.muted }]} numberOfLines={1}>
+          {item.material}
+        </Text>
+        {item.price != null && (
+          <Text style={[styles.cardPrice, { color: theme.colors.primary }]}>
+            ${item.price.toLocaleString('es-CO')}
+          </Text>
+        )}
+      </View>
+      <TouchableOpacity
+        style={[styles.bookmark, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}
+        onPress={() => {
+          const favoriteItem = {
+            id: item.id,
+            title: item.title,
+            material: item.material,
+            image: item.image || ''
+          };
+          toggleFavorite(favoriteItem);
+        }}
+      >
+        <Ionicons
+          name={isSaved ? 'bookmark' : 'bookmark-outline'}
+          size={16}
+          color={isSaved ? theme.colors.primary : theme.colors.muted}
+        />
       </TouchableOpacity>
-    );
-  };
+    </TouchableOpacity>
+  );
+};
 
   const renderService = ({ item }: { item: ServiceItem }) => {
     return (
@@ -255,11 +336,46 @@ export default function SearchScreen({ navigation }: any) {
         <Text style={[styles.brand, { color: theme.colors.text }]}>Consoft</Text>
         <TouchableOpacity
           style={styles.ctaLight}
-          onPress={() => {
-            if (!contact?.backupEmail || !contact?.backupPhone || !contact?.defaultAddress) {
-              setWarnContactModal(true);
+          onPress={async () => {
+            // Si no hay contacto en el store, cargar del perfil
+            if (!contact) {
+              try {
+                const profileData = await UsersApi(API).me();
+                const user = (profileData as any)?.user || profileData;
+                
+                // Mapear campos del perfil al formato del store
+                const contactData = {
+                  backupEmail: user?.email || '',
+                  backupPhone: user?.phone || '',
+                  defaultAddress: user?.address || ''
+                };
+                
+                setContact(contactData);
+                
+                // Validar después de cargar
+                const hasEmail = contactData.backupEmail && contactData.backupEmail.trim().length > 0;
+                const hasPhone = contactData.backupPhone && contactData.backupPhone.trim().length > 0;
+                const hasAddress = contactData.defaultAddress && contactData.defaultAddress.trim().length > 0;
+                
+                if (!hasEmail || !hasPhone || !hasAddress) {
+                  setWarnContactModal(true);
+                } else {
+                  navigation.navigate('Schedule', { item: { title: 'Agendar visita' } });
+                }
+              } catch (error) {
+                setWarnContactModal(true);
+              }
             } else {
-              navigation.navigate('Schedule', { item: { title: 'Agendar visita' } });
+              // Validación normal si ya hay contacto
+              const hasEmail = contact?.backupEmail && contact.backupEmail.trim().length > 0;
+              const hasPhone = contact?.backupPhone && contact.backupPhone.trim().length > 0;
+              const hasAddress = contact?.defaultAddress && contact.defaultAddress.trim().length > 0;
+              
+              if (!hasEmail || !hasPhone || !hasAddress) {
+                setWarnContactModal(true);
+              } else {
+                navigation.navigate('Schedule', { item: { title: 'Agendar visita' } });
+              }
             }
           }}
         >
@@ -363,27 +479,29 @@ export default function SearchScreen({ navigation }: any) {
                 renderItem={renderItem}
                 style={{ flex: 1 }}
                 numColumns={2}
-                columnWrapperStyle={{ gap: 16 }}
-                contentContainerStyle={[styles.grid, { paddingBottom: 120 }]}
+                columnWrapperStyle={{ gap: 12, paddingHorizontal: 8 }}
+                contentContainerStyle={styles.grid}
                 extraData={favoriteIds}
                 showsVerticalScrollIndicator={false}
+                ListFooterComponent={() => (
+                  <View style={{ paddingHorizontal: 16, paddingBottom: 16 }}>
+                    <TouchableOpacity
+                      style={[styles.customProductButton, { backgroundColor: theme.colors.card, borderColor: theme.colors.primary }]}
+                      onPress={() => navigation.navigate('CustomProduct')}
+                    >
+                      <View style={[styles.customProductIcon, { backgroundColor: theme.colors.primary + '15' }]}>
+                        <Ionicons name="hammer-outline" size={24} color={theme.colors.primary} />
+                      </View>
+                      <View style={styles.customProductContent}>
+                        <Text style={[styles.customProductTitle, { color: theme.colors.text }]}>¿No encuentras lo que buscas?</Text>
+                        <Text style={[styles.customProductSubtitle, { color: theme.colors.muted }]}>Diseña tu mueble ideal y te cotizamos</Text>
+                      </View>
+                      <Ionicons name="arrow-forward" size={20} color={theme.colors.primary} />
+                    </TouchableOpacity>
+                  </View>
+                )}
+                // SIN OPTIMIZACIONES para probar si causan el problema
               />
-
-              <View style={{ paddingHorizontal: 16, paddingBottom: 16 }}>
-                <TouchableOpacity
-                  style={[styles.customProductButton, { backgroundColor: theme.colors.card, borderColor: theme.colors.primary }]}
-                  onPress={() => navigation.navigate('CustomProduct')}
-                >
-                  <View style={[styles.customProductIcon, { backgroundColor: theme.colors.primary + '15' }]}>
-                    <Ionicons name="hammer-outline" size={24} color={theme.colors.primary} />
-                  </View>
-                  <View style={styles.customProductContent}>
-                    <Text style={[styles.customProductTitle, { color: theme.colors.text }]}>¿No encuentras lo que buscas?</Text>
-                    <Text style={[styles.customProductSubtitle, { color: theme.colors.muted }]}>Diseña tu mueble ideal y te cotizamos</Text>
-                  </View>
-                  <Ionicons name="arrow-forward" size={20} color={theme.colors.primary} />
-                </TouchableOpacity>
-              </View>
             </View>
           )}
         </>
@@ -396,14 +514,14 @@ export default function SearchScreen({ navigation }: any) {
             keyExtractor={(item) => item.id}
             renderItem={renderService}
             style={{ flex: 1 }}
-            ItemSeparatorComponent={() => <View style={{ height: 14 }} />}
-            contentContainerStyle={{ paddingBottom: 32, paddingTop: 8 }}
+            contentContainerStyle={{ paddingBottom: 24 }}
             showsVerticalScrollIndicator={false}
+            // SIN OPTIMIZACIONES para probar si causan el problema
           />
         </>
       )}
 
-      {/* Modal de tipos de mueble (overlay aparece primero, sheet sube después) */}
+      {/* Modal de tipos de mueble */}
       <BottomSheet visible={typeModalVisible} onClose={() => setTypeModalVisible(false)} sheetStyle={{ backgroundColor: theme.colors.card }}>
         <View style={styles.modalHeader}>
           <Text style={[styles.modalTitle, { color: theme.colors.text }]}>¿Qué tipo de Mueble estás buscando?</Text>
@@ -411,16 +529,66 @@ export default function SearchScreen({ navigation }: any) {
             <Ionicons name="close" size={22} color={theme.colors.text} />
           </TouchableOpacity>
         </View>
-        {FURNITURE_TYPES.map((t) => {
-          const checked = selectedTypes.includes(t);
-          return (
-            <TouchableOpacity key={t} style={styles.optionRow} onPress={() => toggleType(t)}>
-              <View style={[styles.checkbox, checked ? styles.checkboxChecked : styles.checkboxUnchecked]} />
-              <Text style={[styles.optionLabel, { color: theme.colors.text }]}>{t}</Text>
-            </TouchableOpacity>
-          );
-        })}
+        <View style={styles.optionsContainer}>
+          {FURNITURE_TYPES.map((t) => {
+            const checked = selectedTypes.includes(t);
+            return (
+              <TouchableOpacity key={t} style={styles.optionRow} onPress={() => toggleType(t)}>
+                <View style={[styles.checkbox, checked ? styles.checkboxChecked : styles.checkboxUnchecked]}>
+                  {checked && <Ionicons name="checkmark" size={16} color="#fff" />}
+                </View>
+                <Text style={[styles.optionLabel, { color: theme.colors.text, fontWeight: checked ? '700' : '600' }]}>{t}</Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
         <TouchableOpacity style={styles.saveBtn} onPress={() => setTypeModalVisible(false)}>
+          <Text style={styles.saveBtnText}>Guardar</Text>
+        </TouchableOpacity>
+      </BottomSheet>
+
+      {/* Modal de precio */}
+      <BottomSheet visible={priceModalVisible} onClose={() => setPriceModalVisible(false)} sheetStyle={{ backgroundColor: theme.colors.card }}>
+        <View style={styles.modalHeader}>
+          <Text style={[styles.modalTitle, { color: theme.colors.text }]}>¿Qué tipo de Precio estás buscando?</Text>
+          <TouchableOpacity onPress={() => setPriceModalVisible(false)}>
+            <Ionicons name="close" size={22} color={theme.colors.text} />
+          </TouchableOpacity>
+        </View>
+        <View style={styles.optionsContainer}>
+          <Text style={[styles.priceLabel, { color: BROWN }]}>Ingresa el Valor Minimo</Text>
+          <TextInput
+            value={priceMin}
+            onChangeText={setPriceMin}
+            placeholder="0"
+            keyboardType="numeric"
+            placeholderTextColor={theme.colors.muted}
+            style={[styles.priceInput, { backgroundColor: theme.colors.background, borderColor: theme.colors.border, color: theme.colors.text }]}
+          />
+
+          <Text style={[styles.priceLabel, { marginTop: 8, color: BROWN }]}>Ingresa el Valor Maximo</Text>
+          <TextInput
+            value={priceMax}
+            onChangeText={setPriceMax}
+            placeholder="0"
+            keyboardType="numeric"
+            placeholderTextColor={theme.colors.muted}
+            style={[styles.priceInput, { backgroundColor: theme.colors.background, borderColor: theme.colors.border, color: theme.colors.text }]}
+          />
+
+          <Text style={[styles.priceLabel, { marginTop: 12, color: BROWN }]}>Precios Estandar</Text>
+          {PRICE_BANDS.map((b) => {
+            const checked = selectedBands.includes(b);
+            return (
+              <TouchableOpacity key={b} style={styles.optionRow} onPress={() => toggleBand(b)}>
+                <View style={[styles.checkbox, checked ? styles.checkboxChecked : styles.checkboxUnchecked]} />
+                <Text style={[styles.optionLabel, { color: theme.colors.text }]}>{b}</Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+
+        <TouchableOpacity style={styles.saveBtn} onPress={() => setPriceModalVisible(false)}>
           <Text style={styles.saveBtnText}>Guardar</Text>
         </TouchableOpacity>
       </BottomSheet>
@@ -502,7 +670,7 @@ const LIGHT = '#f3ece7';
 const LILAC = '#EDE9FE';
 
 const styles = StyleSheet.create({
-  container: { flex: 1, paddingHorizontal: 20, paddingTop: 16 },
+  container: { flex: 1, paddingHorizontal: 20, paddingTop: 8 },
   headerBar: { marginHorizontal: -20, paddingHorizontal: 20, height: 64, borderBottomLeftRadius: 20, borderBottomRightRadius: 20, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12, borderBottomWidth: 1 },
   brand: { fontWeight: '800', fontSize: 18 },
   ctaLight: { backgroundColor: BROWN, paddingVertical: 8, paddingHorizontal: 12, borderRadius: 999, flexDirection: 'row', alignItems: 'center' },
@@ -568,27 +736,28 @@ const styles = StyleSheet.create({
   },
   retryText: { fontWeight: '800' },
 
-  grid: { paddingBottom: 24, gap: 16 },
+  grid: { paddingBottom: 24, gap: 16, paddingHorizontal: 2 },
   card: {
     flex: 1,
     borderRadius: 16,
     overflow: 'hidden',
     borderWidth: 1,
     borderColor: '#eee',
+    minHeight: 200, // Altura mínima para evitar recortes
   },
-  cardImage: { width: '100%', height: 120 },
+  cardImage: { width: '100%', height: 140 },
   cardImagePlaceholder: {
     width: '100%',
-    height: 120,
+    height: 140,
     alignItems: 'center',
     justifyContent: 'center',
     borderBottomWidth: 1,
   },
-  cardBody: { padding: 12, position: 'relative' },
-  cardTitle: { fontWeight: '700', marginBottom: 6 },
-  cardSubtitle: { color: '#8a7c70', fontSize: 12 },
-  cardPrice: { marginTop: 6, fontWeight: '800', fontSize: 12 },
-  bookmark: { position: 'absolute', right: 10, top: -20, padding: 6, borderRadius: 12, borderWidth: 1, borderColor: '#eee' },
+  cardBody: { padding: 12, position: 'relative', minHeight: 60 }, // Altura mínima del body
+  cardTitle: { fontWeight: '700', marginBottom: 4, fontSize: 14, lineHeight: 18 },
+  cardSubtitle: { color: '#8a7c70', fontSize: 12, marginBottom: 4 },
+  cardPrice: { marginTop: 4, fontWeight: '800', fontSize: 13 },
+  bookmark: { position: 'absolute', right: 8, top: 8, padding: 6, borderRadius: 12, borderWidth: 1, borderColor: '#eee', backgroundColor: '#fff' },
 
   // Services list styles
   serviceCard: {
@@ -621,16 +790,17 @@ const styles = StyleSheet.create({
   modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.35)', justifyContent: 'flex-end' },
   backdropClickable: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
   modalSheet: { borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 16, gap: 12, maxHeight: '85%' },
+  optionsContainer: { maxHeight: 350, minHeight: 220 },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
   modalTitle: { fontSize: 16, fontWeight: '800' },
-  optionRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10 },
+  optionRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 8 },
   optionLabel: { fontWeight: '600' },
-  checkbox: { width: 26, height: 26, borderRadius: 6, borderWidth: 1 },
-  checkboxUnchecked: { borderColor: '#C7C7C7' },
-  checkboxChecked: { borderColor: '#6b4028', backgroundColor: '#F4EFFF' },
+  checkbox: { width: 26, height: 26, borderRadius: 6, borderWidth: 1, justifyContent: 'center', alignItems: 'center' },
+  checkboxUnchecked: { borderColor: '#C7C7C7', backgroundColor: '#fff' },
+  checkboxChecked: { borderColor: '#6b4028', backgroundColor: '#6b4028' },
   priceLabel: { fontWeight: '700' },
   priceInput: { borderWidth: 1, borderRadius: 12, paddingHorizontal: 12, height: 44 },
-  saveBtn: { marginTop: 8, alignSelf: 'center', width: '86%', backgroundColor: '#6b4028', borderRadius: 16, paddingVertical: 12, alignItems: 'center' },
+  saveBtn: { marginTop: 12, alignSelf: 'center', width: '90%', backgroundColor: '#6b4028', borderRadius: 16, paddingVertical: 14, alignItems: 'center', minHeight: 50 },
   saveBtnText: { color: '#fff', fontWeight: '700' },
   centerBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.35)', alignItems: 'center', justifyContent: 'center', padding: 20 },
   warnCard: { borderRadius: 16, padding: 16, width: '90%' },

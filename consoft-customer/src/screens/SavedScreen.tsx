@@ -33,8 +33,8 @@ export default function SavedScreen({ navigation }: any) {
             </TouchableOpacity>
           )}
           numColumns={2}
-          contentContainerStyle={{ padding: 16, paddingBottom: 32 }}
-          columnWrapperStyle={{ gap: 12 }}
+          contentContainerStyle={{ padding: 16, paddingBottom: 32, paddingHorizontal: 2 }}
+          columnWrapperStyle={{ gap: 12, paddingHorizontal: 8 }}
           ItemSeparatorComponent={() => <View style={{ height: 12 }} />}
         />
       )}
@@ -49,10 +49,30 @@ const styles = StyleSheet.create({
   emptySubtitle: { marginTop: 8, marginBottom: 16 },
   ctaBtn: { paddingVertical: 12, paddingHorizontal: 20, borderRadius: 999, marginTop: 6 },
   ctaText: { fontWeight: '700' },
-  gridCard: { borderRadius: 16, overflow: 'hidden', borderWidth: 1, flex: 1, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 2 },
+  gridCard: { 
+    borderRadius: 16, 
+    overflow: 'hidden', 
+    borderWidth: 1, 
+    flex: 1, 
+    shadowColor: '#000', 
+    shadowOpacity: 0.05, 
+    shadowRadius: 6, 
+    shadowOffset: { width: 0, height: 2 }, 
+    elevation: 2,
+    minHeight: 200, // Altura mínima consistente con SearchScreen
+  },
   gridImage: { width: '100%', height: 140 },
-  bookmark: { position: 'absolute', top: 8, right: 8, borderRadius: 999, padding: 6 },
-  gridBody: { padding: 12 },
-  gridTitle: { fontWeight: '700', fontSize: 14 },
-  gridSubtitle: { fontSize: 12, marginTop: 4 },
+  bookmark: { 
+    position: 'absolute', 
+    top: 8, 
+    right: 8, 
+    borderRadius: 12, 
+    padding: 6,
+    borderWidth: 1,
+    borderColor: '#eee',
+    backgroundColor: 'rgba(255,255,255,0.9)' 
+  },
+  gridBody: { padding: 12, minHeight: 60 }, // Altura mínima del body
+  gridTitle: { fontWeight: '700', fontSize: 14, lineHeight: 18, marginBottom: 4 },
+  gridSubtitle: { fontSize: 12, marginTop: 4, color: '#8a7c70' },
 });

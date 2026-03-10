@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useCallback } from 'react';
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, FlatList } from 'react-native';
+import { View, Text, StyleSheet, TextInput, TouchableOpacity, FlatList, ActivityIndicator } from 'react-native';
 import { useTheme } from '../../../theme/theme';
 import { useAppStore } from '../../../store/appStore';
 import { SalesDocument, OrderState } from '../../../domain/types';
@@ -27,36 +27,49 @@ export default function OrdersListScreen() {
   async function loadOrders() {
     if (!API) return;
     try {
+      console.log('[OrdersListScreen] Loading orders from API...');
       const res: any = await OrdersApi(API).listAdmin();
-      const list: any[] = (res?.orders || res?.items || res?.data?.orders || (Array.isArray(res) ? res : [])) as any[];
+      console.log('[OrdersListScreen] API response keys:', Object.keys(res));
+      const list: any[] = (res?.orders || res?.data || (Array.isArray(res) ? res : [])) as any[];
+      console.log('[OrdersListScreen] Parsed list length:', list.length);
       const mapped: SalesDocument[] = list.map((o: any) => {
+        console.log('[OrdersListScreen] Mapping order:', o);
+        // Según documentación: items tienen tipo, id_producto/id_servicio, detalles, cantidad, valor
         const items = (o?.items || []).map((it: any) => ({
           id: String(it?._id || it?.id || Math.random()),
-          name: it?.detalles || (it?.id_servicio?.name || 'Servicio'),
+          name: it?.detalles || it?.productName || (it?.id_producto?.name || it?.id_servicio?.name || 'Item'),
           price: Number(it?.valor || 0),
+          quantity: Number(it?.cantidad || 1),
           observations: it?.detalles,
         }));
+        console.log('[OrdersListScreen] Mapped items:', items);
+        // Imagen: buscar solo en items (attachments ya no se usan en admin)
         const featuredFromItems =
           (o?.items || []).find((it: any) => it?.imageUrl)?.imageUrl ||
+          (o?.items || []).find((it: any) => it?.id_producto?.imageUrl)?.id_producto?.imageUrl ||
           (o?.items || []).find((it: any) => it?.id_servicio?.imageUrl)?.id_servicio?.imageUrl;
-        const featuredFromAttachments = Array.isArray(o?.attachments) && o.attachments.length > 0 ? o.attachments[0] : undefined;
-        const featured = featuredFromAttachments || featuredFromItems || undefined;
-        return {
+        const featured = featuredFromItems || undefined;
+        const mappedDoc = {
           id: (o?._id || o?.id) as string,
           clientId: (o?.user?._id || o?.user?.id || 'unknown') as any,
           clientName: o?.user?.name || '',
           clientEmail: o?.user?.email || '',
           items,
-          status: 'Order' as any,
-          orderState: (o?.paymentStatus || 'PENDING') as any,
+          status: o?.status || 'En proceso',
+          orderState: (o?.paymentStatus || 'Pendiente') as any,
+          address: o?.address || '',
           images: [],
-          featuredImage: featured,
-          createdAt: o?.createdAt || new Date().toISOString(),
+          featuredImage: undefined, // Ya no se usan imágenes en pedidos de cliente
+          createdAt: o?.createdAt || o?.startedAt || new Date().toISOString(),
           updatedAt: o?.updatedAt || new Date().toISOString(),
         } as SalesDocument;
+        console.log('[OrdersListScreen] Mapped document:', mappedDoc);
+        return mappedDoc;
       });
       setDocuments(mapped);
+      console.log('[OrdersListScreen] Orders loaded successfully:', mapped.length);
     } catch (e) {
+      console.error('[OrdersListScreen] Error loading orders:', e);
       setDocuments(documentsStore);
     }
   }
@@ -100,6 +113,7 @@ export default function OrdersListScreen() {
   }, [q, documents, sortKey, sortDir]);
 
   const empty = !documents.length;
+  console.log('[OrdersListScreen] Documents state:', documents.length, documents);
 
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background, padding: theme.spacing(2) }]}> 
@@ -216,44 +230,48 @@ export default function OrdersListScreen() {
                 <View style={{ position: 'relative', padding: theme.spacing(1.75) }}>
                   <MaterialCommunityIcons name="truck-delivery-outline" size={moderateScale(20)} color={theme.colors.primary} style={{ position: 'absolute', right: theme.spacing(0.5), top: theme.spacing(0.5) }} />
                   <View style={{ flexDirection: 'row', gap: 12 }}>
-                    {d.featuredImage
-                      ? (
-                        <Image
-                          source={{ uri: d.featuredImage }}
-                          style={[styles.thumb, { borderRadius: theme.radius, width: scale(64), height: scale(64) }]}
-                          contentFit="cover"
-                        />
-                      )
-                      : (
-                        <View style={[styles.thumb, { borderRadius: theme.radius, width: scale(64), height: scale(64), alignItems: 'center', justifyContent: 'center' }]}>
-                          <MaterialCommunityIcons name="package-variant-closed" size={moderateScale(24)} color={theme.colors.muted} />
-                        </View>
-                      )}
+                    <View style={[styles.thumb, { borderRadius: theme.radius, width: scale(64), height: scale(64), alignItems: 'center', justifyContent: 'center' }]}>
+                      <MaterialCommunityIcons name="package-variant-closed" size={moderateScale(24)} color={theme.colors.primary} />
+                    </View>
                     <View style={{ flex: 1 }}>
                       <Text style={{ color: theme.colors.text, fontWeight: '700', fontSize: responsiveFontSize(14), textDecorationLine: 'underline' }}>
                         Pedido #{d.id.slice(0, 6).toUpperCase()}
                       </Text>
-                      <Text style={{ color: theme.colors.muted, marginTop: 2 }} numberOfLines={1}>
-                        {d.items.length > 0 ? d.items.map(i => i.name).join(', ') : 'Sin items'} →
+                      <Text style={{ color: theme.colors.muted, marginTop: 2, fontSize: responsiveFontSize(11) }} numberOfLines={1}>
+                        Cliente: {(d as any).clientName || 'Sin nombre'}
                       </Text>
-                      <Text style={{ color: theme.colors.primary, fontWeight: '700', fontSize: responsiveFontSize(26), marginTop: 6 }}>
-                        ${d.items.reduce((s, i) => s + i.price, 0).toLocaleString()}
+                      <Text style={{ color: theme.colors.muted, marginTop: 2, fontSize: responsiveFontSize(10) }} numberOfLines={1}>
+                        {d.items.length > 0 ? d.items.map(i => `${i.name} (x${(i as any).quantity || 1})`).join(', ') : 'Sin items'}
                       </Text>
+                      <View style={{ flexDirection: 'row', alignItems: 'baseline', marginTop: 6, gap: 8 }}>
+                        <Text style={{ color: theme.colors.primary, fontWeight: '700', fontSize: responsiveFontSize(22) }}>
+                          ${d.items.reduce((s, i) => s + (i.price * ((i as any).quantity || 1)), 0).toLocaleString()}
+                        </Text>
+                        <Text style={{ color: theme.colors.muted, fontSize: responsiveFontSize(10) }}>
+                          {(d as any).orderState || 'Pendiente'}
+                        </Text>
+                      </View>
                     </View>
                   </View>
                 </View>
-                {(() => {
-                  const base = new Date(d.createdAt ?? new Date().toISOString());
-                  base.setDate(base.getDate() + 7);
-                  const fechaEntrega = base.toLocaleDateString('es-ES', { day: 'numeric', month: 'long' });
-                  return (
-                    <View style={{ backgroundColor: theme.colors.border, paddingVertical: theme.spacing(1.25), paddingHorizontal: theme.spacing(2), borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.border }}>
-                      <Text style={{ color: theme.colors.text, fontWeight: '700', fontSize: responsiveFontSize(14) }}>
-                        Fecha de entrega : {fechaEntrega}
-                      </Text>
-                    </View>
-                  );
-                })()}
+                <View style={{ backgroundColor: theme.colors.border, paddingVertical: theme.spacing(1.25), paddingHorizontal: theme.spacing(2), borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.border, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <View>
+                    <Text style={{ color: theme.colors.muted, fontSize: responsiveFontSize(10) }}>
+                      Estado: {(d as any).status || 'En proceso'}
+                    </Text>
+                    <Text style={{ color: theme.colors.text, fontWeight: '700', fontSize: responsiveFontSize(12), marginTop: 2 }}>
+                      Creado: {new Date(d.createdAt).toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })}
+                    </Text>
+                  </View>
+                  <View style={{ alignItems: 'flex-end' }}>
+                    <Text style={{ color: theme.colors.muted, fontSize: responsiveFontSize(10) }}>
+                      Dirección
+                    </Text>
+                    <Text style={{ color: theme.colors.text, fontSize: responsiveFontSize(11), marginTop: 2 }} numberOfLines={1}>
+                      {(d as any).address || 'Sin dirección'}
+                    </Text>
+                  </View>
+                </View>
               </TouchableOpacity>
             )}
           />
@@ -281,7 +299,7 @@ export default function OrdersListScreen() {
           <Text style={{ color: theme.colors.text, fontWeight: '700' }}>Agregar Pedido</Text>
         </TouchableOpacity>
       )}
-      
+            
     </View>
   );
 }
@@ -290,7 +308,7 @@ const styles = StyleSheet.create({
   container: { flex: 1 },
   search: { borderWidth: 1 },
   card: { borderWidth: 1 },
-  thumb: { width: 64, height: 64, backgroundColor: '#D9D9D9' },
+  thumb: { width: 64, height: 64, backgroundColor: 'rgba(107, 64, 40, 0.1)' }, // Color dorado claro
   statusPill: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999 },
   fab: { position: 'absolute', borderWidth: 1, shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 12, shadowOffset: { width: 0, height: 6 } },
   emptyCta: { position: 'absolute', alignSelf: 'center', borderWidth: 1, shadowColor: '#000', shadowOpacity: 0.18, shadowRadius: 16, shadowOffset: { width: 0, height: 8 }, elevation: 6 },

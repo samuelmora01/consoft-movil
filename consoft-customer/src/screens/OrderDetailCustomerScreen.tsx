@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, Image, ScrollView, TouchableOpacity, ActivityIndicator, Alert } from 'react-native';
+import { View, Text, StyleSheet, Image, ScrollView, TouchableOpacity, ActivityIndicator, Alert, Linking } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../theme/theme';
 import { ReviewsApi, OrdersApi, QuotationsApi } from '../api/client';
 import { API } from '../config';
+import PaymentHistory from '../components/PaymentHistory';
 
 type Review = {
   _id: string;
@@ -113,8 +114,8 @@ export default function OrderDetailCustomerScreen({ route, navigation }: any) {
           <View style={styles.slotsRow}>
             {order.items.slice(0, 3).map((item: any, i: number) => (
               <View key={i} style={[styles.slotBox, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}>
-                {item.imageUrl ? (
-                  <Image source={{ uri: item.imageUrl }} style={styles.slotImage} />
+                {item.imageUrl || item.image || item.product?.imageUrl || item.product?.image ? (
+                  <Image source={{ uri: item.imageUrl || item.image || item.product?.imageUrl || item.product?.image }} style={styles.slotImage} />
                 ) : (
                   <Ionicons name="cube-outline" size={22} color={theme.colors.primary} />
                 )}
@@ -177,48 +178,18 @@ export default function OrderDetailCustomerScreen({ route, navigation }: any) {
         </View>
       </View>
 
-      {/* Pagos realizados */}
-      {(order?.initialPayment || (Array.isArray(order?.payments) && order.payments.length > 0)) && (
-        <>
-          <Text style={[styles.section, { color: theme.colors.text, paddingHorizontal: 0, marginTop: 20 }]}>Pagos realizados</Text>
-          {order?.initialPayment && (
-            <View style={[styles.paymentCard, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}>
-              <View style={styles.paymentHeader}>
-                <Ionicons name="cash-outline" size={20} color={theme.colors.primary} />
-                <Text style={[styles.paymentTitle, { color: theme.colors.text }]}>Pago inicial</Text>
-              </View>
-              <View style={styles.paymentRow}>
-                <Text style={[styles.paymentLabel, { color: theme.colors.muted }]}>Monto</Text>
-                <Text style={[styles.paymentValue, { color: theme.colors.text }]}>${(order.initialPayment.amount || 0).toLocaleString()}</Text>
-              </View>
-              <View style={styles.paymentRow}>
-                <Text style={[styles.paymentLabel, { color: theme.colors.muted }]}>Método</Text>
-                <Text style={[styles.paymentValue, { color: theme.colors.text }]}>{order.initialPayment.method === 'cash' ? 'Efectivo' : 'Transferencia'}</Text>
-              </View>
-            </View>
-          )}
-          {Array.isArray(order?.payments) && order.payments.filter((p: any) => p.status === 'aprobado' || p.status === 'confirmado').map((payment: any, idx: number) => (
-            <View key={payment._id || idx} style={[styles.paymentCard, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}>
-              <View style={styles.paymentHeader}>
-                <Ionicons name="card-outline" size={20} color={theme.colors.primary} />
-                <Text style={[styles.paymentTitle, { color: theme.colors.text }]}>Pago #{idx + 1}</Text>
-                <View style={[styles.approvedBadge, { backgroundColor: '#16a34a20' }]}>
-                  <Text style={[styles.approvedText, { color: '#16a34a' }]}>Aprobado</Text>
-                </View>
-              </View>
-              <View style={styles.paymentRow}>
-                <Text style={[styles.paymentLabel, { color: theme.colors.muted }]}>Monto</Text>
-                <Text style={[styles.paymentValue, { color: theme.colors.text }]}>${(payment.amount || 0).toLocaleString()}</Text>
-              </View>
-              {payment.paidAt && (
-                <View style={styles.paymentRow}>
-                  <Text style={[styles.paymentLabel, { color: theme.colors.muted }]}>Fecha</Text>
-                  <Text style={[styles.paymentValue, { color: theme.colors.text }]}>{new Date(payment.paidAt).toLocaleDateString()}</Text>
-                </View>
-              )}
-            </View>
-          ))}
-        </>
+      {/* Historial de Pagos */}
+      {kind === 'order' && (
+        <PaymentHistory
+          payments={Array.isArray(order?.payments) ? order.payments : []}
+          initialPayment={order?.initialPayment}
+          onViewReceipt={(url) => {
+            const fullUrl = url.startsWith('http') ? url : `${API}${url}`;
+            Linking.openURL(fullUrl).catch(() => {
+              Alert.alert('Error', 'No se pudo abrir el comprobante');
+            });
+          }}
+        />
       )}
       
       <Text style={[styles.muted, { marginTop: 16, color: theme.colors.muted }]}>Nota</Text>

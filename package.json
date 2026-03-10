@@ -1,0 +1,20 @@
+{
+  "name": "consoft-movil",
+  "version": "1.0.0",
+  "description": "",
+  "main": "test-server.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/samuelmora01/consoft-movil.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/samuelmora01/consoft-movil/issues"
+  },
+  "homepage": "https://github.com/samuelmora01/consoft-movil#readme"
+}

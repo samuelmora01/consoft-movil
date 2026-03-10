@@ -19,6 +19,16 @@ export default function OrderPaymentScreen({ route, navigation }: any) {
     ],
     [],
   );
+  
+  const banks = useMemo(
+    () => [
+      'Nequi',
+      'Bancolombia',
+      'Daviplata',
+    ],
+    [],
+  );
+  
   const [qrIndex, setQrIndex] = useState(0);
   const [voucherUri, setVoucherUri] = useState<string | null>(null);
   const [modalVisible, setModalVisible] = useState(false);
@@ -94,6 +104,9 @@ export default function OrderPaymentScreen({ route, navigation }: any) {
       <View style={styles.qrWrap}>
         {voucherUri ? (
           <>
+            <View style={[styles.bankLabel, { backgroundColor: theme.colors.primary }]}>
+              <Text style={styles.bankLabelText}>Comprobante de Pago</Text>
+            </View>
             <Image source={{ uri: voucherUri }} style={styles.qrImage} resizeMode="cover" />
             <TouchableOpacity style={styles.clearBtn} onPress={() => { setVoucherUri(null); setOcrPreview(null); }}>
               <Ionicons name="trash" size={18} color="#fff" />
@@ -101,6 +114,10 @@ export default function OrderPaymentScreen({ route, navigation }: any) {
           </>
         ) : (
           <>
+            <View style={[styles.bankLabel, { backgroundColor: theme.colors.primary }]}>
+              <Ionicons name="card-outline" size={16} color="#fff" style={{ marginRight: 6 }} />
+              <Text style={styles.bankLabelText}>{banks[qrIndex]}</Text>
+            </View>
             <Image source={{ uri: qrs[qrIndex] }} style={styles.qrImage} />
             <View style={styles.pagerRow}>
               <TouchableOpacity
@@ -170,7 +187,32 @@ const styles = StyleSheet.create({
   infoLabel: { fontSize: 14, marginBottom: 4 },
   infoValue: { fontWeight: '700' },
   qrWrap: { alignItems: 'center', marginTop: 12 },
+  qrContainer: { position: 'relative', alignItems: 'center' },
   qrImage: { width: 260, height: 260, borderRadius: 12 },
+  bankLabel: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    marginBottom: 12,
+    alignSelf: 'center',
+  },
+  bankLabelText: { 
+    color: '#fff', 
+    fontWeight: '700', 
+    fontSize: 14 
+  },
+  bankIndicator: { 
+    position: 'absolute', 
+    top: 8, 
+    right: 8, 
+    paddingHorizontal: 12, 
+    paddingVertical: 6, 
+    borderRadius: 20 
+  },
+  bankText: { color: '#fff', fontWeight: '700', fontSize: 12 },
   pagerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 16, marginTop: 12 },
   dot: { width: 10, height: 10, borderRadius: 5, borderWidth: 2, borderColor: '#6b4028' },
   dotActive: { backgroundColor: '#6b4028' },

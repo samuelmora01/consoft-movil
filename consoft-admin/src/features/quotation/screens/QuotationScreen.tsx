@@ -28,9 +28,7 @@ export default function QuotationScreen() {
   const clientDebounceRef = React.useRef<NodeJS.Timeout | null>(null);
   const [selectedClientId, setSelectedClientId] = React.useState<string | null>(null);
   const [clientError, setClientError] = React.useState<string | null>(null);
-  const [allUsers, setAllUsers] = React.useState<Array<{ id: string; name: string; email: string }>>([]);
-  const hasLoadedAllRef = React.useRef(false);
-  const [orderAddress, setOrderAddress] = React.useState('');
+    const [orderAddress, setOrderAddress] = React.useState('');
   const [draftItems, setDraftItems] = React.useState<Array<{ id: string; name: string; price: number; observations?: string }>>([]);
   const [draftDeliveryISO, setDraftDeliveryISO] = React.useState<string | undefined>(undefined);
 
@@ -49,10 +47,8 @@ export default function QuotationScreen() {
   React.useEffect(() => {
     if (doc && (!clientQuery || !clientEmail)) {
       setClientName(doc.clientName || '');
-      // @ts-expect-error optional email on doc
       setClientEmail(doc.clientEmail || '');
       setClientQuery(doc.clientName || '');
-      // @ts-expect-error id type
       setSelectedClientId(doc.clientId as any);
     }
   }, [doc]);
@@ -87,28 +83,22 @@ export default function QuotationScreen() {
   const itemsToShow = doc?.items ?? draftItems;
   const total = (itemsToShow ?? []).reduce((sum, s) => sum + s.price, 0);
 
-  // No image picking on creation screen
-  async function loadAllUsersIfNeeded() {
-    if (hasLoadedAllRef.current || !API) return;
+  // Buscar usuarios solo cuando se escribe algo
+  async function searchUsers(query: string) {
+    if (!API || !query.trim()) {
+      setClientOptions([]);
+      return;
+    }
     try {
       setClientLoading(true);
-      setClientError(null);
-      const res = await UsersApi(API).search('');
-      const r: any = res as any;
-      const list: any =
-        r?.users ??
-        r?.results ??
-        r?.items ??
-        r?.data?.users ??
-        r?.data?.results ??
-        (Array.isArray(r) ? r : []);
-      const mapped = (list as any[]).map((u: any) => ({
+      const res: any = await UsersApi(API).search(query.trim());
+      const list: any[] = res?.data || res?.users || (Array.isArray(res) ? res : []);
+      const mapped = list.map((u: any) => ({
         id: u._id || u.id,
         name: u.name || [u.firstName, u.lastName].filter(Boolean).join(' '),
         email: u.email,
-      }));
-      setAllUsers(mapped);
-      hasLoadedAllRef.current = true;
+      })).slice(0, 4); // Limitar a máximo 4 usuarios
+      setClientOptions(mapped);
     } catch (e) {
       const msg = (e as Error)?.message || null;
       setClientError(msg);
@@ -120,19 +110,19 @@ export default function QuotationScreen() {
   React.useEffect(() => {
     if (clientDebounceRef.current) {
       clearTimeout(clientDebounceRef.current);
-      clientDebounceRef.current = null;
     }
-    const q = clientQuery.trim();
     clientDebounceRef.current = setTimeout(async () => {
       try {
-        const lowered = q.toLowerCase();
-        await loadAllUsersIfNeeded();
-        const filtered = (allUsers || []).filter((u: any) => {
-          const nameOk = (u.name || '').toLowerCase().includes(lowered);
-          const emailOk = (u.email || '').toLowerCase().includes(lowered);
-          return nameOk || emailOk;
-        });
-        setClientOptions(filtered);
+        const q = clientQuery.trim();
+        setClientLoading(true);
+        setClientError(null);
+        if (!q) {
+          setClientOptions([]);
+          setShowClientDropdown(false);
+          setClientLoading(false);
+          return;
+        }
+        await searchUsers(q);
         setShowClientDropdown(true);
       } catch (e) {
         const msg = (e as Error)?.message || null;
@@ -143,7 +133,7 @@ export default function QuotationScreen() {
         setClientLoading(false);
       }
     }, 250);
-  }, [clientQuery, allUsers]);
+  }, [clientQuery]);
 
   return (
     <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
@@ -160,7 +150,7 @@ export default function QuotationScreen() {
           placeholder="Nombre del cliente (busca y selecciona)"
           value={clientQuery}
           onChangeText={(t) => { if (!isEditing) { setClientQuery(t); setShowClientDropdown(true); } }}
-          onFocus={() => { if (!isEditing) { setShowClientDropdown(true); loadAllUsersIfNeeded(); } }}
+          onFocus={() => { if (!isEditing) { setShowClientDropdown(true); } }}
           placeholderTextColor={theme.colors.muted}
           style={[
             styles.input,

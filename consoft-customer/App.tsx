@@ -25,7 +25,7 @@ function NavigationRoot() {
       : { ...NavigationLightTheme, colors: { ...NavigationLightTheme.colors, primary: theme.colors.primary, background: theme.colors.background, card: theme.colors.card, text: theme.colors.text, border: theme.colors.border } };
   }, [theme]);
   const insets = useSafeAreaInsets();
-  const androidTopPad = Platform.OS === 'android' ? Math.max(insets.top, 12) : 0;
+  const topPad = Math.max(insets.top, 12);
   useEffect(() => {
     (async () => {
       if (!API) {
@@ -51,7 +51,15 @@ function NavigationRoot() {
       ref.dispatch(
         CommonActions.reset({
           index: 0,
-          routes: [{ name: 'Perfil' } as never], // cualquier screen válida dentro de CustomerNavigator
+          routes: [
+            { 
+              name: 'Inicio' as never,
+              state: {
+                index: 0,
+                routes: [{ name: 'SearchHome' as never }]
+              }
+            }
+          ], // Ir al tab de Inicio y directamente a SearchHome
         })
       );
     } else {
@@ -64,7 +72,7 @@ function NavigationRoot() {
     }
   }, [isSignedIn, bootstrapped]);
   return (
-    <View style={{ flex: 1, paddingTop: androidTopPad, backgroundColor: theme.colors.background }}>
+    <View style={{ flex: 1, paddingTop: topPad, backgroundColor: theme.colors.background }}>
       <NavigationContainer ref={navRef as any} theme={navigationTheme} key={isSignedIn ? 'main-nav' : 'auth-nav'}>
         {bootstrapped ? (isSignedIn ? <CustomerNavigator /> : <AuthNavigator />) : null}
         <StatusBar style="auto" />

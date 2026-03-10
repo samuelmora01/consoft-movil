@@ -1,10 +1,10 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Image, Switch } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Image, Switch, Alert, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { useTheme } from '../theme/theme';
 import { API } from '../config';
-import { UsersApi, AuthApi } from '../api/client';
+import { UsersApi, AuthApi, forceLogout } from '../api/client';
 import { useSessionStore } from '../store/sessionStore';
 import { useUserStore } from '../store/userStore';
 
@@ -12,6 +12,8 @@ export default function ProfileScreen() {
   const navigation = useNavigation<any>();
   const { theme, toggleMode } = useTheme();
   const [me, setMe] = useState<any | null>(null);
+  const [loggingOut, setLoggingOut] = useState(false);
+  const [debugMode, setDebugMode] = useState(false);
   const setSignedIn = useSessionStore((s) => s.setSignedIn);
   const setContact = useUserStore((s) => s.setContact);
   useFocusEffect(
@@ -125,33 +127,76 @@ export default function ProfileScreen() {
       <TouchableOpacity
         style={[styles.logoutButton, { backgroundColor: theme.colors.card, borderColor: '#FCA5A5' }]}
         onPress={async () => {
-          try {
-            if (API) {
-              // 1) logout estándar
-              try { await AuthApi(API).logout(); } catch {}
-              // 2) doble intento directo por si algún header impide limpiar cookie
-              try { await fetch(`${API}/api/auth/logout`, { method: 'POST', credentials: 'include' as any } as RequestInit); } catch {}
-              // 3) verificación opcional (ignorada), sólo para que el backend vuelva a setear cookie vacía si aplica
-              try { await fetch(`${API}/api/auth/me`, { credentials: 'include' as any } as RequestInit); } catch {}
-            }
-          } catch {}
-          // Limpiar estado local
-          setContact({ backupEmail: '', backupPhone: '', defaultAddress: '' });
-          // Actualiza estado global para que App.tsx cambie al AuthNavigator
-          setSignedIn(false);
+          // Confirmación antes de cerrar sesión
+          Alert.alert(
+            'Cerrar Sesión',
+            '¿Estás seguro de que quieres cerrar sesión?',
+            [
+              {
+                text: 'Cancelar',
+                style: 'cancel',
+              },
+              {
+                text: 'Cerrar Sesión',
+                style: 'destructive',
+                onPress: async () => {
+                  setLoggingOut(true);
+                  try {
+                    // Usar la función forceLogout optimizada
+                    await forceLogout(API);
+                    
+                    // Limpiar estado local
+                    setContact({ backupEmail: '', backupPhone: '', defaultAddress: '' });
+                    
+                    // El estado de sesión ya se actualizó en forceLogout
+                    
+                    // Mostrar mensaje de éxito
+                    Alert.alert(
+                      'Sesión Cerrada',
+                      'Has cerrado sesión correctamente.',
+                      [{ text: 'OK' }]
+                    );
+                  } catch (error) {
+                    console.error('Error during logout:', error);
+                    
+                    // Even if backend fails, clear local state
+                    setContact({ backupEmail: '', backupPhone: '', defaultAddress: '' });
+                    setSignedIn(false);
+                    
+                    Alert.alert(
+                      'Sesión Cerrada',
+                      'Se ha cerrado la sesión localmente.',
+                      [{ text: 'OK' }]
+                    );
+                  } finally {
+                    setLoggingOut(false);
+                  }
+                },
+              },
+            ]
+          );
         }}
+        disabled={loggingOut}
       >
-        <View style={styles.logoutIcon}>
-          <Ionicons name="log-out-outline" size={22} color="#DC2626" />
-        </View>
-        <Text style={styles.logoutText}>Cerrar sesión</Text>
+        {loggingOut ? (
+          <ActivityIndicator size="small" color="#DC2626" />
+        ) : (
+          <View style={styles.logoutIcon}>
+            <Ionicons name="log-out-outline" size={22} color="#DC2626" />
+          </View>
+        )}
+        <Text style={styles.logoutText}>
+          {loggingOut ? 'Cerrando...' : 'Cerrar sesión'}
+        </Text>
       </TouchableOpacity>
+
+     
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 20 },
+  container: { flex: 1, paddingHorizontal: 20, paddingTop: 8 },
   profileHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -228,4 +273,15 @@ const styles = StyleSheet.create({
   },
   logoutIcon: { marginRight: 8 },
   logoutText: { color: '#DC2626', fontWeight: '700', fontSize: 16 },
+  emergencyButton: {
+    padding: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  emergencyButtonText: {
+    color: '#fff',
+    fontWeight: '700',
+    fontSize: 14,
+  },
 });

@@ -1,9 +1,35 @@
 import { API } from '../../config';
 import { OrdersApi } from '../../api/client';
 
+function getInitials(name: string): string {
+  const parts = name.trim().split(' ');
+  if (parts.length >= 2) {
+    return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+  }
+  return name.substring(0, 2).toUpperCase();
+}
+
+function generateAvatarColor(email: string): string {
+  const colors = [
+    '#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEAA7',
+    '#DDA0DD', '#98D8C8', '#FFD93D', '#6BCB77', '#4D96FF',
+    '#FF6B9D', '#C44569', '#F8B195', '#F67280', '#355C7D'
+  ];
+  
+  let hash = 0;
+  for (let i = 0; i < email.length; i++) {
+    hash = email.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  
+  return colors[Math.abs(hash) % colors.length];
+}
+
 export type Conversation = {
   id: string;
   title: string;
+  email?: string;
+  avatarInitials?: string;
+  avatarColor?: string;
   lastMessage?: string;
   updatedAt?: string;
 };
@@ -16,9 +42,16 @@ export async function listAdminConversations(): Promise<Conversation[]> {
     const email = (u?.email || '').toLowerCase();
     if (!email) return;
     if (!emailToConv[email]) {
+      const name = u?.name || u?.fullName || u?.email;
+      const initials = getInitials(name);
+      const color = generateAvatarColor(email);
+      
       emailToConv[email] = {
         id: `dm:${email}`,
-        title: u?.name || u?.fullName || u?.email,
+        title: name,
+        email: email,
+        avatarInitials: initials,
+        avatarColor: color,
         lastMessage: undefined,
         updatedAt: undefined,
       };
@@ -88,19 +121,43 @@ export async function listDmConversations(): Promise<Conversation[]> {
 export async function fetchConversationHistory(id: string): Promise<Array<{ _id: string; sender: any; message: string; sentAt: string }>> {
   if (!API) return [];
   const isDm = id?.startsWith('dm:');
-  const basePaths = isDm
-    ? [
-        `/api/chat/messages?roomId=${encodeURIComponent(id)}`,
-        `/api/messages?roomId=${encodeURIComponent(id)}`,
-        `/api/chat/rooms/${encodeURIComponent(id)}/messages`,
-        `/api/chat/${encodeURIComponent(id)}/messages`,
-        `/api/chat/conversations/${encodeURIComponent(id)}/messages`,
-      ]
-    : [`/api/orders/${id}/messages`, `/api/quotations/${id}/messages`, `/api/chat/conversations/${encodeURIComponent(id)}/messages`];
-  const paths = isDm ? basePaths : [...basePaths, `/api/chat/messages?roomId=${encodeURIComponent(id)}`];
-  for (const p of paths) {
+  
+  // Según documento del backend:
+  // - DM: GET /chat/dm/:userId
+  // - Cotizaciones: GET /quotations/:quotationId/messages
+  // - Pedidos: GET /orders/:orderId/messages (fallback)
+  
+  let path: string;
+  if (isDm) {
+    // Extraer userId del formato "dm:email@example.com"
+    const userId = id.slice(3); // Remover "dm:"
+    path = `/api/chat/dm/${encodeURIComponent(userId)}`;
+  } else {
+    // Intentar primero como cotización, luego como pedido
+    path = `/api/quotations/${id}/messages`;
+  }
+  
+  try {
+    const res = await fetch(`${API}${path}`, { credentials: 'include' as any } as RequestInit);
+    if (res.ok) {
+      const data = await res.json().catch(() => ({}));
+      const arr: any[] = (data && (data.messages || data)) || [];
+      return arr.map((m: any) => ({
+        _id: m._id || m.id || String(Math.random()),
+        sender: m.sender,
+        message: m.message || m.text,
+        sentAt: m.sentAt || m.createdAt || new Date().toISOString(),
+      }));
+    }
+  } catch (err) {
+    console.error('Error fetching conversation:', err);
+  }
+  
+  // Fallback: intentar como pedido si no es DM
+  if (!isDm) {
     try {
-      const res = await fetch(`${API}${p}`, { credentials: 'include' as any } as RequestInit);
+      const fallbackPath = `/api/orders/${id}/messages`;
+      const res = await fetch(`${API}${fallbackPath}`, { credentials: 'include' as any } as RequestInit);
       if (res.ok) {
         const data = await res.json().catch(() => ({}));
         const arr: any[] = (data && (data.messages || data)) || [];
@@ -111,36 +168,60 @@ export async function fetchConversationHistory(id: string): Promise<Array<{ _id:
           sentAt: m.sentAt || m.createdAt || new Date().toISOString(),
         }));
       }
-    } catch {}
+    } catch (err) {
+      console.error('Error fetching order messages:', err);
+    }
   }
+  
   return [];
 }
 
 export async function sendConversationMessage(id: string, message: string): Promise<void> {
   if (!API || !message) return;
   const isDm = id?.startsWith('dm:');
-  const body = isDm
-    ? { roomId: id, to: id.slice(3), message }
-    : { message };
-  const candidates = isDm
-    ? [
-        { path: '/api/chat/messages', method: 'POST' as const, body },
-        { path: `/api/chat/rooms/${encodeURIComponent(id)}/messages`, method: 'POST' as const, body: { message } },
-      ]
-    : [
-        { path: `/api/orders/${id}/messages`, method: 'POST' as const, body },
-        { path: `/api/quotations/${id}/messages`, method: 'POST' as const, body },
-      ];
-  for (const c of candidates) {
+  
+  // Según documento del backend:
+  // - DM: POST /chat/dm/:userId con body { message }
+  // - Cotizaciones: POST /quotations/:quotationId/messages con body { message }
+  // - Pedidos: POST /orders/:orderId/messages con body { message }
+  
+  let path: string;
+  const body = { message };
+  
+  if (isDm) {
+    const userId = id.slice(3); // Remover "dm:"
+    path = `/api/chat/dm/${encodeURIComponent(userId)}`;
+  } else {
+    // Intentar primero como cotización
+    path = `/api/quotations/${id}/messages`;
+  }
+  
+  try {
+    const res = await fetch(`${API}${path}`, {
+      method: 'POST',
+      credentials: 'include' as any,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    } as RequestInit);
+    if (res.ok) return;
+  } catch (err) {
+    console.error('Error sending message:', err);
+  }
+  
+  // Fallback: intentar como pedido si no es DM
+  if (!isDm) {
     try {
-      const res = await fetch(`${API}${c.path}`, {
-        method: c.method,
+      const fallbackPath = `/api/orders/${id}/messages`;
+      const res = await fetch(`${API}${fallbackPath}`, {
+        method: 'POST',
         credentials: 'include' as any,
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(c.body),
+        body: JSON.stringify(body),
       } as RequestInit);
       if (res.ok) return;
-    } catch {}
+    } catch (err) {
+      console.error('Error sending message to order:', err);
+    }
   }
 }
 

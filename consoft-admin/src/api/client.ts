@@ -226,7 +226,7 @@ export const QuotationsApi = (API: string) => ({
 });
 
 export const OrdersApi = (API: string) => ({
-  createForUser: (payload: { user: string; status?: string; address?: string; items: Array<{ id_servicio?: string; detalles?: string; valor: number }>; payments?: any[] }) =>
+  createForUser: (payload: { user: string; status?: string; address?: string; items: Array<{ tipo?: string; id_producto?: string; id_servicio?: string; detalles?: string; cantidad?: number; valor: number }>; payments?: any[] }) =>
     apiFetch(API, '/api/orders', { method: 'POST', body: JSON.stringify(payload) }),
   listAdmin: async () => {
     const candidates = [

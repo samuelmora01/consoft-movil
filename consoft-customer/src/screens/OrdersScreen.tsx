@@ -36,10 +36,14 @@ export default function OrdersScreen({ navigation }: any) {
       try {
         if (!API) throw new Error('Configura API');
         setLoading(true);
+        console.log('Fetching orders and quotations...');
         const [ordersRes, quotesRes] = await Promise.allSettled([
           OrdersApi(API).mine(),
           QuotationsApi(API).mine(),
         ]);
+
+        console.log('ordersRes:', ordersRes.status, ordersRes.status === 'rejected' ? ordersRes.reason : 'OK');
+        console.log('quotesRes:', quotesRes.status, quotesRes.status === 'rejected' ? quotesRes.reason : 'OK');
 
         const ordersList: any[] = ordersRes.status === 'fulfilled'
           ? ((ordersRes.value as any)?.orders || (Array.isArray(ordersRes.value) ? ordersRes.value : []))
@@ -47,6 +51,10 @@ export default function OrdersScreen({ navigation }: any) {
         const quotesList: any[] = quotesRes.status === 'fulfilled'
           ? ((quotesRes.value as any)?.quotations || (quotesRes.value as any)?.items || (Array.isArray(quotesRes.value) ? quotesRes.value : []))
           : [];
+
+        console.log('ordersList length:', ordersList.length);
+        console.log('quotesList length:', quotesList.length);
+        console.log('quotesList sample:', quotesList.slice(0, 2));
 
         const mappedOrders: OrderCard[] = ordersList.map((q: any, idx: number) => {
           // Calcular totales
@@ -125,6 +133,7 @@ export default function OrdersScreen({ navigation }: any) {
         });
 
         if (mounted) {
+          console.log('Setting orders:', combined.length, 'items');
           setOrders(combined);
           setError(null);
         }

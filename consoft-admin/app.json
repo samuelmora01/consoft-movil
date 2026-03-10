@@ -41,7 +41,7 @@
       "expo-maps"
     ],
     "extra": {
-      "API": "http://192.168.1.8:3000",
+      "API": "http://localhost:3000",
       "eas": {
         "projectId": "3ac0235d-7f85-4fab-b781-02339fd42418"
       }

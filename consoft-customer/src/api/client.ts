@@ -1,5 +1,30 @@
 import { fetchWithRateLimit, fetchWithCache, cache, debounce, RATE_LIMIT_CONFIG } from '../utils/rateLimiter';
 
+// Función para manejar logout cuando el refresh falla
+async function handleAuthFailure(baseUrl: string): Promise<void> {
+  try {
+    // Limpiar cookies
+    await fetch(`${baseUrl}/api/auth/logout`, { method: 'POST', credentials: 'include' });
+  } catch (error) {
+    console.error('Error during logout:', error);
+  }
+  
+  // Limpiar cache
+  cache.clear();
+  
+  // Resetear estado de refresh
+  isRefreshing = false;
+  refreshQueue = [];
+  
+  // Actualizar estado de sesión (importado dinámicamente para evitar circular dependency)
+  try {
+    const { useSessionStore } = await import('../store/sessionStore');
+    useSessionStore.getState().setSignedIn(false);
+  } catch (error) {
+    console.error('Error updating session store:', error);
+  }
+}
+
 async function apiFetchRaw<T = unknown>(baseUrl: string, path: string, init: RequestInit = {}, useCache: boolean = false): Promise<T> {
   const url = path.startsWith('/') ? `${baseUrl}${path}` : `${baseUrl}/api/${path}`;
   
@@ -17,35 +42,59 @@ async function apiFetchRaw<T = unknown>(baseUrl: string, path: string, init: Req
   } as RequestInit;
   
   try {
-    if (shouldCache) {
-      return await fetchWithCache<T>(url, config, path, true);
-    } else {
-      return await fetchWithRateLimit<T>(url, config, path);
+    // TEMPORAL: Desactivar rate limiter y cache para aislar el problema
+    console.log('🚀 Direct fetch to:', url);
+    const response = await fetch(url, config);
+    
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
     }
+    
+    const data = await response.json();
+    console.log('✅ Direct fetch success:', url);
+    return data;
+    
   } catch (error: any) {
-    // Si es 429, limpiar cache y reintentar con más delay
-    if (error.message?.includes('429') || error.status === 429) {
-      cache.clear(); // Limpiar cache por si acaso
-      console.warn('Rate limit detected, clearing cache and retrying...');
-      // Reintentar con delay manual
-      await new Promise(resolve => setTimeout(resolve, 3000));
-      return await fetchWithRateLimit<T>(url, config, path);
-    }
+    console.error('❌ Direct fetch error:', url, error);
     throw error;
   }
 }
+
+// Flag para evitar loops de refresh
+let isRefreshing = false;
+let refreshQueue: Array<{ resolve: (value: any) => void; reject: (reason: any) => void }> = [];
 
 export async function apiFetch<T = unknown>(baseUrl: string, path: string, init: RequestInit = {}, useCache: boolean = false): Promise<T> {
   try {
     return await apiFetchRaw<T>(baseUrl, path, init, useCache);
   } catch (error: any) {
-    // Si es 401/403, intentar refresh y reintentar
-    if (error.message?.includes('401') || error.message?.includes('403') || error.message?.includes('Unauthorized')) {
+    // Detectar errores de autenticación
+    const isAuthError = 
+      error.message?.includes('401') || 
+      error.message?.includes('403') || 
+      error.message?.includes('Unauthorized') ||
+      error.status === 401 || 
+      error.status === 403 ||
+      (error.response && (error.response.status === 401 || error.response.status === 403));
+    
+    if (isAuthError && !isRefreshing) {
       console.log('🔄 Refresh token triggered for:', path);
+      
+      // Si ya estamos refrescando, agregar a la cola
+      if (isRefreshing) {
+        console.log('🔄 Adding to refresh queue:', path);
+        return new Promise<T>((resolve, reject) => {
+          refreshQueue.push({ resolve, reject });
+        });
+      }
+
+      isRefreshing = true;
+      
       try {
         // Refresh directo sin rate limiter para evitar bloqueos
-        const refreshUrl = path.startsWith('/') ? `${baseUrl}/api/auth/refresh` : `${baseUrl}/auth/refresh`;
+        const refreshUrl = `${baseUrl}/api/auth/refresh`;
         console.log('🔄 Calling refresh endpoint:', refreshUrl);
+        
         const response = await fetch(refreshUrl, {
           method: 'POST',
           credentials: 'include',
@@ -56,18 +105,69 @@ export async function apiFetch<T = unknown>(baseUrl: string, path: string, init:
         
         if (!response.ok) {
           console.error('🔄 Refresh failed:', response.status);
-          throw new Error('Refresh failed');
+          
+          // Si el refresh falla, limpiar estado y manejar logout
+          await handleAuthFailure(baseUrl);
+          
+          throw new Error('Session expired - Please login again');
         }
         
-        console.log('🔄 Refresh successful, retrying original request');
+        console.log('🔄 Refresh successful, clearing cache and retrying');
+        
+        // Limpiar cache después de refresh exitoso
+        cache.clear();
+        
         // Reintentar la request original
-        return await apiFetchRaw<T>(baseUrl, path, init, useCache);
+        const result = await apiFetchRaw<T>(baseUrl, path, init, useCache);
+        
+        // Resolver todas las peticiones en cola
+        refreshQueue.forEach(({ resolve }) => resolve(result));
+        refreshQueue = [];
+        
+        return result;
+        
       } catch (refreshError: any) {
         console.error('🔄 Refresh error:', refreshError.message);
-        throw error;
+        
+        // Limpiar estado en caso de error
+        await handleAuthFailure(baseUrl);
+        
+        throw refreshError;
+      } finally {
+        isRefreshing = false;
       }
     }
+    
     throw error;
+  }
+}
+
+// Función para forzar logout (usable desde cualquier parte de la app)
+export async function forceLogout(API?: string): Promise<void> {
+  const baseUrl = API || '';
+  
+  try {
+    // Limpiar cookies
+    if (baseUrl) {
+      await fetch(`${baseUrl}/api/auth/logout`, { method: 'POST', credentials: 'include' });
+    }
+  } catch (error) {
+    console.error('Error during forced logout:', error);
+  }
+  
+  // Limpiar cache
+  cache.clear();
+  
+  // Resetear estado de refresh
+  isRefreshing = false;
+  refreshQueue = [];
+  
+  // Actualizar estado de sesión
+  try {
+    const { useSessionStore } = await import('../store/sessionStore');
+    useSessionStore.getState().setSignedIn(false);
+  } catch (error) {
+    console.error('Error updating session store:', error);
   }
 }
 
@@ -85,21 +185,45 @@ export const AuthApi = (API: string) => ({
 });
 
 export const UsersApi = (API: string) => ({
-  me: () => apiFetch(API, '/api/users/me'),
+  me: async () => {
+    try {
+      return await apiFetch(API, '/api/users/me');
+    } catch {
+      return await apiFetch(API, '/users/me');
+    }
+  },
   register: (name: string, email: string, password: string) =>
     apiFetch(API, '/api/users', { method: 'POST', body: JSON.stringify({ name, email, password }) }),
   updateMe: async (payload: Partial<{ name: string; email: string; phone: string; address: string; avatarUrl: string }>) => {
-    try {
-      return await apiFetch(API, '/api/users/me', { method: 'PATCH', body: JSON.stringify(payload) });
-    } catch {
+    const attempts: Array<() => Promise<unknown>> = [
+      () => apiFetch(API, '/api/users/me', { method: 'PUT', body: JSON.stringify(payload) }),
+      () => apiFetch(API, '/api/users/me', { method: 'PATCH', body: JSON.stringify(payload) }),
+      () => apiFetch(API, '/users/me', { method: 'PUT', body: JSON.stringify(payload) }),
+      () => apiFetch(API, '/users/me', { method: 'PATCH', body: JSON.stringify(payload) }),
+      () => apiFetch(API, '/api/auth/me', { method: 'PATCH', body: JSON.stringify(payload) }),
+      () => apiFetch(API, '/api/auth/me', { method: 'PATCH', body: JSON.stringify(payload) }),
+    ];
+
+    let lastErr: unknown;
+    for (const run of attempts) {
       try {
-        return await apiFetch(API, '/api/auth/me', { method: 'PATCH', body: JSON.stringify(payload) });
-      } catch {
-        const me: any = await apiFetch(API, '/api/auth/me');
-        const userId = me?._id || me?.id;
-        if (!userId) throw new Error('No se pudo identificar el usuario');
-        return await apiFetch(API, `/api/users/${userId}`, { method: 'PATCH', body: JSON.stringify(payload) });
+        return await run();
+      } catch (e) {
+        lastErr = e;
       }
+    }
+
+    // Último fallback: actualizar por id
+    try {
+      const me: any = await apiFetch(API, '/api/auth/me');
+      const userId = me?._id || me?.id;
+      if (!userId) throw new Error('No se pudo identificar el usuario');
+      return await apiFetch(API, `/api/users/${userId}`, { method: 'PATCH', body: JSON.stringify(payload) });
+    } catch {
+      const me: any = await apiFetch(API, '/api/auth/me');
+      const userId = me?._id || me?.id;
+      if (!userId) throw new Error('No se pudo identificar el usuario');
+      return await apiFetch(API, `/users/${userId}`, { method: 'PATCH', body: JSON.stringify(payload) });
     }
   },
   updateMeMultipart: async (payload: Partial<{ name: string; email: string; phone: string; address: string }> & { profilePictureUri?: string }) => {
@@ -115,17 +239,24 @@ export const UsersApi = (API: string) => ({
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       form.append('profile_picture', { uri, name: filename, type: mimeType } as any);
     }
-    const res = await fetch(`${API}/api/users/me`, {
-      method: 'PUT',
-      body: form,
-      credentials: 'include' as any,
-    } as RequestInit);
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      const message = (data && (data.message || data.error)) || 'Request failed';
-      throw new Error(message);
+    const tryUpload = async (path: string) => {
+      const res = await fetch(`${API}${path}`, {
+        method: 'PUT',
+        body: form,
+        credentials: 'include' as any,
+      } as RequestInit);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const message = (data && (data.message || data.error)) || `Request failed (${res.status})`;
+        throw new Error(message);
+      }
+      return data;
+    };
+    try {
+      return await tryUpload('/api/users/me');
+    } catch {
+      return await tryUpload('/users/me');
     }
-    return data;
   },
 });
 
@@ -193,26 +324,54 @@ export const OrdersApi = (API: string) => ({
     const mimeType = filename.toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg';
     form.append('payment_image', { uri: imageUri, name: filename, type: mimeType } as any);
     
-    // Usar rate limiter con endpoint específico para OCR
-    const url = `${API}/api/orders/${orderId}/payments/ocr`;
-    const config: RequestInit = {
-      method: 'POST',
-      body: form,
-      credentials: 'include' as any,
-    } as RequestInit;
+    // Intentar endpoints según documentación primero, luego fallback
+    const attempts = [
+      `/orders/${orderId}/payments/ocr`,        // Documentación oficial
+      `/api/quotations/${orderId}/payments/ocr` // Backend real
+    ];
     
-    try {
-      return await fetchWithRateLimit(url, config, `/api/orders/${orderId}/payments/ocr`);
-    } catch (error: any) {
-      // Manejo específico para 429 en OCR
-      if (error.message?.includes('429') || error.status === 429) {
-        throw new Error('Demasiadas solicitudes de OCR. Por favor espera unos segundos antes de intentar nuevamente.');
+    for (const endpoint of attempts) {
+      try {
+        const url = `${API}${endpoint}`;
+        const config: RequestInit = {
+          method: 'POST',
+          body: form,
+          credentials: 'include' as any,
+        } as RequestInit;
+        
+        return await fetchWithRateLimit(url, config, endpoint);
+      } catch (error: any) {
+        // Manejo específico para 429 en OCR
+        if (error.message?.includes('429') || error.status === 429) {
+          throw new Error('Demasiadas solicitudes de OCR. Por favor espera unos segundos antes de intentar nuevamente.');
+        }
+        // Si es el último intento, lanzar el error
+        if (endpoint === attempts[attempts.length - 1]) {
+          throw error;
+        }
+        // Si no, continuar con el siguiente intento
+        continue;
       }
-      throw error;
     }
   },
-  submitPaymentOCR: (orderId: string, payload: { amount: number; method?: string; receiptUrl: string; ocrText: string; paidAt?: string }) =>
-    apiFetch(API, `/api/orders/${orderId}/payments/ocr/submit`, { method: 'POST', body: JSON.stringify(payload) }),
+  submitPaymentOCR: async (orderId: string, payload: { amount: number; method?: string; receiptUrl: string; ocrText: string; paidAt?: string }) => {
+    // Intentar endpoints según documentación primero, luego fallback
+    const attempts = [
+      () => apiFetch(API, `/orders/${orderId}/payments/ocr/submit`, { method: 'POST', body: JSON.stringify(payload) }),        // Documentación oficial
+      () => apiFetch(API, `/api/quotations/${orderId}/payments/ocr/submit`, { method: 'POST', body: JSON.stringify(payload) }) // Backend real
+    ];
+    
+    let lastErr: unknown;
+    for (const run of attempts) {
+      try {
+        return await run();
+      } catch (e) {
+        lastErr = e;
+      }
+    }
+    
+    throw lastErr;
+  },
 });
 
 export const ProductsApi = (API: string) => ({
@@ -248,7 +407,10 @@ export const VisitsApi = (API: string) => ({
 });
 
 export const ChatApi = (API: string) => ({
+  // Mensajes directos (DM) entre usuarios
   getDmMessages: (userId: string) => apiFetch(API, `/api/chat/dm/${userId}`),
+  // Mensajes de una cotización específica
+  getQuotationMessages: (quotationId: string) => apiFetch(API, `/api/quotations/${quotationId}/messages`),
 });
 
 export const ReviewsApi = (API: string) => ({

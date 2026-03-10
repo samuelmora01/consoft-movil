@@ -19,14 +19,17 @@ export default function EditProfileScreen() {
     (async () => {
       try {
         if (!API) return;
-        const me: any = await AuthApi(API).me();
+        // Usar UsersApi.me() que ya tiene los fallbacks correctos
+        const me: any = await UsersApi(API).me();
         const u: any = (me && (me.user || me)) || {};
         setName(u?.name || u?.fullName || '');
         setEmail(u?.email || '');
         setPhone(u?.phone || '');
         setAddress(u?.address || '');
         setAvatarUrl(u?.avatarUrl || u?.profile_picture || u?.photoUrl);
-      } catch {}
+      } catch (error) {
+        // Silently handle error
+      }
     })();
   }, []);
   async function pickPhoto() {
@@ -57,13 +60,29 @@ export default function EditProfileScreen() {
       // Solo enviar campos que cambian; primero leer actual
       let freshBefore: any = {};
       try { freshBefore = await UsersApi(API).me(); } catch {}
+      const beforeUser: any = (freshBefore && (freshBefore.user || freshBefore)) || {};
       const changed: any = {};
-      if (name !== (freshBefore?.name || '')) changed.name = name;
-      if (email !== (freshBefore?.email || '')) changed.email = email;
-      if (phone !== (freshBefore?.phone || '')) changed.phone = phone;
-      if (address !== (freshBefore?.address || '')) changed.address = address;
+      if (name !== (beforeUser?.name || beforeUser?.fullName || '')) changed.name = name;
+      if (email !== (beforeUser?.email || '')) changed.email = email;
+      if (phone !== (beforeUser?.phone || beforeUser?.phoneNumber || beforeUser?.celular || '')) changed.phone = phone;
+      if (address !== (beforeUser?.address || beforeUser?.direccion || '')) changed.address = address;
+
+      // Solo usar multipart cuando realmente se está subiendo una imagen local.
       const profilePictureUri = avatarUrl && !/^https?:\/\//i.test(avatarUrl) ? avatarUrl : undefined;
-      await UsersApi(API).updateMeMultipart({ ...changed, profilePictureUri });
+      if (profilePictureUri) {
+        try {
+          await UsersApi(API).updateMeMultipart({ ...changed, profilePictureUri });
+        } catch {
+          // Fallback: si el endpoint multipart no guarda bien los campos, al menos persistir texto.
+          if (Object.keys(changed).length) {
+            await UsersApi(API).updateMe(changed);
+          }
+        }
+      } else {
+        if (Object.keys(changed).length) {
+          await UsersApi(API).updateMe(changed);
+        }
+      }
       try {
         const fresh = await UsersApi(API).me();
         const u: any = (fresh as any)?.user || fresh;

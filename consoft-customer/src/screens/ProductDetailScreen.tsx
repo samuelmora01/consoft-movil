@@ -21,6 +21,10 @@ export default function ProductDetailScreen({ route, navigation }: any) {
   const descriptionText: string = item?.description || item?.descripcion || item?.descriptionC || '';
   const categoryName: string = item?.category?.name || item?.categoryName || '';
 
+  // Debug para ver qué datos llegan
+  console.log('[ProductDetailScreen] Item data:', item);
+  console.log('[ProductDetailScreen] Image URL:', imageUrl);
+
   const [quantity, setQuantity] = useState(1);
   const [color, setColor] = useState('');
   const [size, setSize] = useState('');

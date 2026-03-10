@@ -43,9 +43,7 @@ export default function AppointmentCreateScreen() {
   const [selectedClientName, setSelectedClientName] = useState('');
   const clientDebounceRef = useRef<NodeJS.Timeout | null>(null);
   const [clientError, setClientError] = useState<string | null>(null);
-  const [allUsers, setAllUsers] = useState<Array<{ id: string; name: string; email: string }>>([]);
-  const hasLoadedAllRef = useRef(false);
-  
+    
   // Dirección y descripción
   const [address, setAddress] = useState('');
   const [description, setDescription] = useState('');
@@ -66,22 +64,22 @@ export default function AppointmentCreateScreen() {
     [monthIndex, year]
   );
 
-  // Cargar usuarios
-  async function loadAllUsersIfNeeded() {
-    if (hasLoadedAllRef.current || !API) return;
+  // Cargar usuarios solo cuando se escribe algo
+  async function searchUsers(query: string) {
+    if (!API || !query.trim()) {
+      setClientOptions([]);
+      return;
+    }
     try {
       setClientLoading(true);
-      setClientError(null);
-      const res = await UsersApi(API).search('');
-      const r: any = res as any;
-      const list: any = r?.users ?? r?.results ?? r?.items ?? r?.data?.users ?? r?.data?.results ?? (Array.isArray(r) ? r : []);
-      const mapped = (list as any[]).map((u: any) => ({
+      const res: any = await UsersApi(API).search(query.trim());
+      const list: any[] = res?.data || res?.users || (Array.isArray(res) ? res : []);
+      const mapped = list.map((u: any) => ({
         id: u._id || u.id,
         name: u.name || [u.firstName, u.lastName].filter(Boolean).join(' '),
         email: u.email,
-      }));
-      setAllUsers(mapped);
-      hasLoadedAllRef.current = true;
+      })).slice(0, 4); // Limitar a máximo 4 usuarios
+      setClientOptions(mapped);
     } catch (e) {
       setClientError((e as Error)?.message || null);
     } finally {
@@ -93,19 +91,19 @@ export default function AppointmentCreateScreen() {
   useEffect(() => {
     if (clientDebounceRef.current) {
       clearTimeout(clientDebounceRef.current);
-      clientDebounceRef.current = null;
     }
-    const q = clientQuery.trim();
     clientDebounceRef.current = setTimeout(async () => {
       try {
-        const lowered = q.toLowerCase();
-        await loadAllUsersIfNeeded();
-        let filtered = (allUsers || []).filter((u: any) => {
-          const nameOk = (u.name || '').toLowerCase().includes(lowered);
-          const emailOk = (u.email || '').toLowerCase().includes(lowered);
-          return nameOk || emailOk;
-        });
-        setClientOptions(filtered);
+        const q = clientQuery.trim();
+        setClientLoading(true);
+        setClientError(null);
+        if (!q) {
+          setClientOptions([]);
+          setShowClientDropdown(false);
+          setClientLoading(false);
+          return;
+        }
+        await searchUsers(q);
         setShowClientDropdown(true);
       } catch (e) {
         setClientError((e as Error)?.message || null);
@@ -115,7 +113,7 @@ export default function AppointmentCreateScreen() {
         setClientLoading(false);
       }
     }, 250);
-  }, [clientQuery, allUsers]);
+  }, [clientQuery]);
 
   // Cargar slots disponibles
   useEffect(() => {
@@ -217,7 +215,7 @@ export default function AppointmentCreateScreen() {
               style={[styles.input, { color: theme.colors.text }]}
               autoCapitalize="none"
               autoCorrect={false}
-              onFocus={() => { setShowClientDropdown(true); loadAllUsersIfNeeded(); }}
+              onFocus={() => { setShowClientDropdown(true); }}
             />
           </View>
           {showClientDropdown && (

@@ -5,23 +5,27 @@
 
 // Configuración global de rate limiting
 export const RATE_LIMIT_CONFIG = {
-  // Delay base entre peticiones (ms)
-  BASE_DELAY: 1000, // 1 segundo
+  // Delay base entre peticiones (ms) - REDUCIDO para velocidad
+  BASE_DELAY: 100, // 100ms (era 1000ms)
   
-  // Delay específico por endpoint
+  // Delay específico por endpoint - OPTIMIZADO
   ENDPOINT_DELAYS: {
-    '/api/orders/*/payments/ocr': 3000, // 3 segundos para OCR
-    '/api/auth/refresh': 500, // 500ms para refresh
-    '/api/visits/available-slots': 1000, // 1 segundo para slots
-    default: 1000, // 1 segundo por defecto
+    '/api/orders/*/payments/ocr': 3000, // 3 segundos para OCR (mantener)
+    '/api/auth/refresh': 200, // 200ms para refresh (era 500ms)
+    '/api/visits/available-slots': 500, // 500ms para slots (era 1000ms)
+    '/api/products': 50, // 50ms para productos (nuevo)
+    '/api/services': 50, // 50ms para servicios (nuevo)
+    '/api/orders': 100, // 100ms para pedidos (nuevo)
+    '/api/quotations': 100, // 100ms para cotizaciones (nuevo)
+    default: 100, // 100ms por defecto (era 1000ms)
   },
   
-  // Configuración de retry
-  MAX_RETRIES: 3,
-  RETRY_DELAYS: [1000, 2000, 4000], // exponential backoff: 1s, 2s, 4s
+  // Configuración de retry - MÁS RÁPIDO
+  MAX_RETRIES: 2, // Reducido de 3 a 2
+  RETRY_DELAYS: [200, 500], // Más rápido: 200ms, 500ms (era 1s, 2s, 4s)
   
-  // Debounce time para acciones repetitivas (ms)
-  DEBOUNCE_TIME: 500,
+  // Debounce time para acciones repetitivas (ms) - MÁS RÁPIDO
+  DEBOUNCE_TIME: 200, // Reducido de 500ms a 200ms
 };
 
 // Queue de peticiones para controlar el flujo
@@ -52,31 +56,46 @@ class RequestQueue {
     
     this.isProcessing = true;
     
-    while (this.queue.length > 0) {
+    // Procesar hasta 3 peticiones en paralelo para mayor velocidad
+    const maxConcurrent = 3;
+    const promises: Promise<void>[] = [];
+    
+    while (this.queue.length > 0 && promises.length < maxConcurrent) {
       const request = this.queue.shift();
       if (!request) break;
       
-      // Calcular delay necesario
-      const delay = this.calculateDelay(endpoint);
-      const now = Date.now();
-      const timeSinceLastRequest = now - this.lastRequestTime;
-      
-      // Esperar si es necesario
-      if (timeSinceLastRequest < delay) {
-        await this.sleep(delay - timeSinceLastRequest);
-      }
-      
-      this.lastRequestTime = Date.now();
-      
-      try {
-        await request();
-      } catch (error) {
-        // El error se maneja en la promise individual
-        console.error('Request failed:', error);
-      }
+      promises.push(this.processRequest(request, endpoint));
     }
     
-    this.isProcessing = false;
+    // Esperar a que terminen las peticiones actuales
+    await Promise.allSettled(promises);
+    
+    // Si hay más en la cola, procesarlas
+    if (this.queue.length > 0) {
+      setTimeout(() => this.processQueue(endpoint), 50); // Pequeño delay entre batches
+    } else {
+      this.isProcessing = false;
+    }
+  }
+
+  private async processRequest(request: () => Promise<any>, endpoint?: string): Promise<void> {
+    const delay = this.calculateDelay(endpoint);
+    const now = Date.now();
+    const timeSinceLastRequest = now - this.lastRequestTime;
+    
+    // Esperar si es necesario
+    if (timeSinceLastRequest < delay) {
+      await this.sleep(delay - timeSinceLastRequest);
+    }
+    
+    this.lastRequestTime = Date.now();
+    
+    try {
+      await request();
+    } catch (error) {
+      // El error se maneja en la promise individual
+      console.error('Request failed:', error);
+    }
   }
 
   private calculateDelay(endpoint?: string): number {

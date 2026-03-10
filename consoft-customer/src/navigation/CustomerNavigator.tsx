@@ -89,6 +89,7 @@ export default function CustomerNavigator() {
   const { theme } = useTheme();
   return (
     <Tab.Navigator
+      initialRouteName="Inicio"
       screenOptions={({ route }) => ({
         headerShown: false,
         tabBarStyle: {
@@ -99,7 +100,7 @@ export default function CustomerNavigator() {
         tabBarInactiveTintColor: theme.colors.muted,
         tabBarIcon: ({ color, size }) => {
           let icon: keyof typeof Ionicons.glyphMap = 'home-outline';
-          if (route.name === 'Buscar') icon = 'home-outline';
+          if (route.name === 'Inicio') icon = 'home-outline';
           if (route.name === 'Guardado') icon = 'bookmark-outline';
           if (route.name === 'Mis pedidos') icon = 'pricetags-outline';
           if (route.name === 'Perfil') icon = 'person-circle-outline';
@@ -107,7 +108,7 @@ export default function CustomerNavigator() {
         },
       })}
     >
-      <Tab.Screen name="Buscar" component={SearchStackNavigator} />
+      <Tab.Screen name="Inicio" component={SearchStackNavigator} />
       <Tab.Screen name="Guardado">
         {() => (
           <SavedStack.Navigator>
